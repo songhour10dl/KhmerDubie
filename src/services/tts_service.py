@@ -1,7 +1,9 @@
-"""Text-to-Speech service for Khmer language."""
+"""Enhanced TTS service with multiple free provider options."""
 import requests
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
+import subprocess
+import tempfile
 from ..utils.logger import setup_logger
 from ..utils.config import config
 
@@ -10,7 +12,9 @@ logger = setup_logger(__name__)
 
 
 class TTSService:
-    """Text-to-Speech service adapter."""
+    """Text-to-Speech service adapter with multiple provider support."""
+    
+    SUPPORTED_PROVIDERS = ['kiri', 'google', 'edge', 'gtts', 'local']
     
     def __init__(self, provider: str = None, api_key: str = None, 
                  base_url: str = None, voice: str = None):
@@ -22,27 +26,274 @@ class TTSService:
     
     def test_connection(self) -> tuple[bool, str]:
         """Test TTS provider connection and Khmer support."""
-        if not self.api_key:
-            return False, "API key not configured"
+        test_text = "សួស្តី"  # Hello in Khmer
         
         try:
-            # Test with a simple Khmer phrase
-            test_text = "សួស្តី"  # Hello in Khmer
-            
             if self.provider == "kiri":
                 return self._test_kiri_connection(test_text)
+            elif self.provider == "google":
+                return self._test_google_connection(test_text)
+            elif self.provider == "edge":
+                return self._test_edge_connection(test_text)
+            elif self.provider == "gtts":
+                return self._test_gtts_connection(test_text)
+            elif self.provider == "local":
+                return self._test_local_connection(test_text)
             else:
-                return False, f"Provider '{self.provider}' not implemented"
+                return False, f"Unknown provider: {self.provider}"
                 
         except Exception as e:
             msg = f"Connection test failed: {str(e)}"
             logger.error(msg)
             return False, msg
     
+    def get_available_voices(self) -> list[str]:
+        """Get available Khmer voices from the provider."""
+        try:
+            if self.provider == "edge":
+                return self._get_edge_voices()
+            elif self.provider == "google":
+                return ["km-KH-Standard-A", "km-KH-Standard-B", "km-KH-Standard-C", "km-KH-Standard-D"]
+            elif self.provider == "gtts":
+                return ["km"]
+            elif self.provider == "local":
+                return ["espeak-km"]
+            else:
+                return [self.voice]
+                
+        except Exception as e:
+            logger.error(f"Failed to retrieve voices: {e}")
+            return [self.voice]
+    
+    def synthesize(self, text: str, output_path: str, voice: str = None) -> str:
+        """Synthesize Khmer text to speech audio file."""
+        voice = voice or self.voice
+        
+        try:
+            logger.info(f"Synthesizing with {self.provider}: {text[:50]}...")
+            
+            if self.provider == "kiri":
+                return self._synthesize_kiri(text, output_path, voice)
+            elif self.provider == "google":
+                return self._synthesize_google(text, output_path, voice)
+            elif self.provider == "edge":
+                return self._synthesize_edge(text, output_path, voice)
+            elif self.provider == "gtts":
+                return self._synthesize_gtts(text, output_path)
+            elif self.provider == "local":
+                return self._synthesize_local(text, output_path)
+            else:
+                raise NotImplementedError(f"Provider '{self.provider}' not implemented")
+                
+        except Exception as e:
+            logger.error(f"TTS synthesis failed: {e}")
+            raise RuntimeError(f"TTS synthesis failed: {e}") from e
+    
+    # ============= EDGE TTS (FREE, RECOMMENDED) =============
+    
+    def _test_edge_connection(self, test_text: str) -> tuple[bool, str]:
+        """Test Edge TTS (requires edge-tts package)."""
+        try:
+            import edge_tts
+            return True, "Edge TTS available (FREE, no API key needed)"
+        except ImportError:
+            return False, "Edge TTS not installed. Run: pip install edge-tts"
+    
+    def _get_edge_voices(self) -> list[str]:
+        """Get available Khmer voices from Edge TTS."""
+        try:
+            import edge_tts
+            import asyncio
+            
+            async def get_voices():
+                voices = await edge_tts.list_voices()
+                khmer_voices = [v['ShortName'] for v in voices if v['Locale'].startswith('km')]
+                return khmer_voices
+            
+            voices = asyncio.run(get_voices())
+            logger.info(f"Found {len(voices)} Khmer voices in Edge TTS")
+            return voices if voices else ["km-KH-SreymomNeural", "km-KH-PisethNeural"]
+            
+        except Exception as e:
+            logger.warning(f"Failed to retrieve Edge voices: {e}")
+            return ["km-KH-SreymomNeural", "km-KH-PisethNeural"]
+    
+    def _synthesize_edge(self, text: str, output_path: str, voice: str) -> str:
+        """Synthesize using Microsoft Edge TTS (FREE)."""
+        try:
+            import edge_tts
+            import asyncio
+            
+            # Default to Khmer voice if not specified
+            if not voice or voice == "khmer_female_1":
+                voice = "km-KH-SreymomNeural"
+            
+            output_path = str(Path(output_path).with_suffix('.mp3'))
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            
+            async def synthesize():
+                communicate = edge_tts.Communicate(text, voice)
+                await communicate.save(output_path)
+            
+            asyncio.run(synthesize())
+            
+            logger.info(f"Edge TTS synthesis successful: {output_path}")
+            return output_path
+            
+        except ImportError:
+            raise RuntimeError("Edge TTS not installed. Run: pip install edge-tts")
+        except Exception as e:
+            logger.error(f"Edge TTS error: {e}")
+            raise RuntimeError(f"Edge TTS failed: {str(e)}") from e
+    
+    # ============= GTTS (FREE, SIMPLE) =============
+    
+    def _test_gtts_connection(self, test_text: str) -> tuple[bool, str]:
+        """Test gTTS (Google Text-to-Speech - FREE)."""
+        try:
+            from gtts import gTTS
+            return True, "gTTS available (FREE, no API key needed)"
+        except ImportError:
+            return False, "gTTS not installed. Run: pip install gtts"
+    
+    def _synthesize_gtts(self, text: str, output_path: str) -> str:
+        """Synthesize using gTTS (Google Text-to-Speech - FREE)."""
+        try:
+            from gtts import gTTS
+            
+            output_path = str(Path(output_path).with_suffix('.mp3'))
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            
+            tts = gTTS(text=text, lang='km', slow=False)
+            tts.save(output_path)
+            
+            logger.info(f"gTTS synthesis successful: {output_path}")
+            return output_path
+            
+        except ImportError:
+            raise RuntimeError("gTTS not installed. Run: pip install gtts")
+        except Exception as e:
+            logger.error(f"gTTS error: {e}")
+            raise RuntimeError(f"gTTS failed: {str(e)}") from e
+    
+    # ============= GOOGLE CLOUD TTS (PAID, HIGH QUALITY) =============
+    
+    def _test_google_connection(self, test_text: str) -> tuple[bool, str]:
+        """Test Google Cloud TTS."""
+        if not self.api_key:
+            return False, "Google Cloud API key not configured"
+        
+        try:
+            from google.cloud import texttospeech
+            return True, "Google Cloud TTS available"
+        except ImportError:
+            return False, "Google Cloud TTS not installed. Run: pip install google-cloud-texttospeech"
+    
+    def _synthesize_google(self, text: str, output_path: str, voice: str) -> str:
+        """Synthesize using Google Cloud TTS (requires API key and billing)."""
+        try:
+            from google.cloud import texttospeech
+            import os
+            
+            # Set credentials
+            if self.api_key:
+                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = self.api_key
+            
+            client = texttospeech.TextToSpeechClient()
+            
+            synthesis_input = texttospeech.SynthesisInput(text=text)
+            
+            voice_params = texttospeech.VoiceSelectionParams(
+                language_code="km-KH",
+                name=voice or "km-KH-Standard-A"
+            )
+            
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3
+            )
+            
+            response = client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice_params,
+                audio_config=audio_config
+            )
+            
+            output_path = str(Path(output_path).with_suffix('.mp3'))
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(output_path, 'wb') as f:
+                f.write(response.audio_content)
+            
+            logger.info(f"Google Cloud TTS synthesis successful: {output_path}")
+            return output_path
+            
+        except ImportError:
+            raise RuntimeError("Google Cloud TTS not installed. Run: pip install google-cloud-texttospeech")
+        except Exception as e:
+            logger.error(f"Google Cloud TTS error: {e}")
+            raise RuntimeError(f"Google Cloud TTS failed: {str(e)}") from e
+    
+    # ============= LOCAL ESPEAK (FREE, OFFLINE) =============
+    
+    def _test_local_connection(self, test_text: str) -> tuple[bool, str]:
+        """Test local eSpeak-ng."""
+        try:
+            result = subprocess.run(
+                ['espeak-ng', '--version'],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                return True, "eSpeak-ng available (FREE, offline)"
+            else:
+                return False, "eSpeak-ng not working"
+        except FileNotFoundError:
+            return False, "eSpeak-ng not installed. Install from: https://github.com/espeak-ng/espeak-ng/releases"
+        except Exception as e:
+            return False, f"eSpeak-ng test failed: {str(e)}"
+    
+    def _synthesize_local(self, text: str, output_path: str) -> str:
+        """Synthesize using local eSpeak-ng (FREE, offline, lower quality)."""
+        try:
+            output_path = str(Path(output_path).with_suffix('.wav'))
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            
+            # Use eSpeak-ng with Khmer language
+            cmd = [
+                'espeak-ng',
+                '-v', 'km',  # Khmer language
+                '-w', output_path,
+                text
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30
+            )
+            
+            logger.info(f"eSpeak-ng synthesis successful: {output_path}")
+            return output_path
+            
+        except FileNotFoundError:
+            raise RuntimeError("eSpeak-ng not installed. Install from: https://github.com/espeak-ng/espeak-ng/releases")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"eSpeak-ng error: {e.stderr}")
+            raise RuntimeError(f"eSpeak-ng failed: {e.stderr}") from e
+        except Exception as e:
+            logger.error(f"eSpeak-ng error: {e}")
+            raise RuntimeError(f"eSpeak-ng failed: {str(e)}") from e
+    
+    # ============= KIRI TTS (ORIGINAL) =============
+    
     def _test_kiri_connection(self, test_text: str) -> tuple[bool, str]:
         """Test Kiri TTS API connection."""
+        if not self.api_key:
+            return False, "Kiri API key not configured"
+        
         try:
-            # This is a placeholder - actual Kiri API endpoint needs verification
             response = requests.post(
                 f"{self.base_url}/tts",
                 headers={
@@ -59,7 +310,7 @@ class TTSService:
             
             if response.status_code == 200:
                 logger.info("Kiri TTS connection successful")
-                return True, "Connection successful - Khmer TTS available"
+                return True, "Kiri TTS connection successful"
             else:
                 msg = f"Kiri TTS returned HTTP {response.status_code}: {response.text}"
                 logger.warning(msg)
@@ -74,59 +325,11 @@ class TTSService:
             logger.error(msg)
             return False, msg
     
-    def get_available_voices(self) -> list[str]:
-        """Get available Khmer voices from the provider."""
-        try:
-            if self.provider == "kiri":
-                return self._get_kiri_voices()
-            else:
-                logger.warning(f"Voice listing not implemented for provider: {self.provider}")
-                return [self.voice]
-                
-        except Exception as e:
-            logger.error(f"Failed to retrieve voices: {e}")
-            return [self.voice]
-    
-    def _get_kiri_voices(self) -> list[str]:
-        """Get available voices from Kiri TTS API."""
-        try:
-            response = requests.get(
-                f"{self.base_url}/voices",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                params={"language": "km"},
-                timeout=10
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            voices = [v['id'] for v in data.get('voices', [])]
-            logger.info(f"Retrieved {len(voices)} Khmer voices from Kiri")
-            return voices if voices else [self.voice]
-            
-        except Exception as e:
-            logger.warning(f"Failed to retrieve Kiri voices: {e}")
-            return [self.voice]
-    
-    def synthesize(self, text: str, output_path: str, voice: str = None) -> str:
-        """Synthesize Khmer text to speech audio file."""
-        voice = voice or self.voice
-        
-        try:
-            if self.provider == "kiri":
-                return self._synthesize_kiri(text, output_path, voice)
-            else:
-                raise NotImplementedError(f"Provider '{self.provider}' not implemented")
-                
-        except Exception as e:
-            logger.error(f"TTS synthesis failed: {e}")
-            raise RuntimeError(f"TTS synthesis failed: {e}") from e
-    
     def _synthesize_kiri(self, text: str, output_path: str, voice: str) -> str:
         """Synthesize speech using Kiri TTS API."""
         try:
             logger.info(f"Synthesizing Khmer text: {text[:50]}...")
             
-            # This is a placeholder implementation - actual Kiri API format needs verification
             response = requests.post(
                 f"{self.base_url}/tts",
                 headers={
@@ -145,28 +348,21 @@ class TTSService:
             
             response.raise_for_status()
             
-            # Save audio data
             output_path = str(Path(output_path).with_suffix('.wav'))
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             
             with open(output_path, 'wb') as f:
                 f.write(response.content)
             
-            logger.info(f"Audio synthesized successfully: {output_path}")
+            logger.info(f"Kiri audio synthesized successfully: {output_path}")
             return output_path
             
         except requests.exceptions.HTTPError as e:
             logger.error(f"Kiri TTS HTTP error: {e.response.status_code} - {e.response.text}")
             raise RuntimeError(f"Kiri TTS failed: {e.response.text}") from e
         except requests.exceptions.Timeout:
-            logger.error("TTS request timeout")
-            raise RuntimeError("TTS request timeout")
+            logger.error("Kiri TTS request timeout")
+            raise RuntimeError("Kiri TTS request timeout")
         except Exception as e:
             logger.error(f"Kiri TTS error: {e}")
             raise RuntimeError(f"Kiri TTS failed: {str(e)}") from e
-
-
-# Note: The Kiri TTS API implementation above is a placeholder based on common TTS API patterns.
-# The actual Kiri API endpoint, request format, and authentication method need to be verified
-# from official Kiri TTS documentation. Users will need to configure the correct base URL,
-# API key, and adjust the request/response format based on the actual API specification.

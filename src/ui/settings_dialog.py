@@ -48,7 +48,8 @@ class SettingsDialog(QDialog):
         tts_layout = QFormLayout(tts_group)
         
         self.tts_provider = QComboBox()
-        self.tts_provider.addItems(["kiri"])
+        self.tts_provider.addItems(["edge", "gtts", "google", "local", "kiri"])
+        self.tts_provider.currentTextChanged.connect(self.on_tts_provider_changed)
         tts_layout.addRow("Provider:", self.tts_provider)
         
         self.tts_url = QLineEdit()
@@ -56,7 +57,8 @@ class SettingsDialog(QDialog):
         
         self.tts_key = QLineEdit()
         self.tts_key.setEchoMode(QLineEdit.Password)
-        tts_layout.addRow("API Key:", self.tts_key)
+        self.tts_key_label = QLabel("API Key:")
+        tts_layout.addRow(self.tts_key_label, self.tts_key)
         
         self.tts_voice = QLineEdit()
         tts_layout.addRow("Voice ID:", self.tts_voice)
@@ -111,6 +113,9 @@ class SettingsDialog(QDialog):
         
         self.max_concurrent.setValue(config.max_concurrent_requests)
         self.request_timeout.setValue(config.request_timeout)
+        
+        # Update UI based on provider
+        self.on_tts_provider_changed(config.tts_provider)
     
     def save_settings(self):
         """Save settings to config."""
@@ -151,22 +156,58 @@ class SettingsDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Test failed:\n\n{str(e)}")
     
+    def on_tts_provider_changed(self, provider: str):
+        """Update UI when TTS provider changes."""
+        # Free providers don't need API key
+        needs_api_key = provider in ["kiri", "google"]
+        needs_base_url = provider in ["kiri"]
+        
+        self.tts_key.setEnabled(needs_api_key)
+        self.tts_key_label.setEnabled(needs_api_key)
+        self.tts_url.setEnabled(needs_base_url)
+        
+        # Update voice placeholder based on provider
+        if provider == "edge":
+            self.tts_voice.setPlaceholderText("km-KH-SreymomNeural or km-KH-PisethNeural")
+        elif provider == "gtts":
+            self.tts_voice.setPlaceholderText("km (fixed)")
+            self.tts_voice.setEnabled(False)
+        elif provider == "google":
+            self.tts_voice.setPlaceholderText("km-KH-Standard-A")
+        elif provider == "local":
+            self.tts_voice.setPlaceholderText("km (eSpeak-ng)")
+            self.tts_voice.setEnabled(False)
+        else:
+            self.tts_voice.setEnabled(True)
+    
     def test_tts(self):
         """Test TTS connection."""
         try:
+            provider = self.tts_provider.currentText()
+            
+            # Show installation hint for free providers
+            if provider == "edge":
+                hint = "\nNote: If test fails, install with: pip install edge-tts"
+            elif provider == "gtts":
+                hint = "\nNote: If test fails, install with: pip install gtts"
+            elif provider == "local":
+                hint = "\nNote: Requires eSpeak-ng: https://github.com/espeak-ng/espeak-ng/releases"
+            else:
+                hint = ""
+            
             service = TTSService(
-                provider=self.tts_provider.currentText(),
-                api_key=self.tts_key.text(),
-                base_url=self.tts_url.text(),
-                voice=self.tts_voice.text()
+                provider=provider,
+                api_key=self.tts_key.text() if self.tts_key.isEnabled() else None,
+                base_url=self.tts_url.text() if self.tts_url.isEnabled() else None,
+                voice=self.tts_voice.text() if self.tts_voice.isEnabled() else None
             )
             
             success, message = service.test_connection()
             
             if success:
-                QMessageBox.information(self, "Success", f"TTS connection successful!\n\n{message}")
+                QMessageBox.information(self, "Success", f"TTS connection successful!\n\n{message}{hint}")
             else:
-                QMessageBox.warning(self, "Connection Failed", f"TTS connection failed:\n\n{message}")
+                QMessageBox.warning(self, "Connection Failed", f"TTS connection failed:\n\n{message}{hint}")
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Test failed:\n\n{str(e)}")

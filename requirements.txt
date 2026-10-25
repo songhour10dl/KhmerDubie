@@ -3,3 +3,14 @@ requests>=2.31.0
 python-dotenv>=1.0.0
 pytest>=7.4.0
 openai-whisper>=20231117
+
+# TTS Provider Options (install one or more):
+# FREE OPTIONS (Recommended):
+edge-tts>=6.1.0          # Microsoft Edge TTS (FREE, high quality, no API key)
+gTTS>=2.5.0              # Google Text-to-Speech (FREE, simple, no API key)
+
+# PAID OPTIONS:
+# google-cloud-texttospeech>=2.14.0  # Google Cloud TTS (requires billing)
+
+# LOCAL/OFFLINE:
+# eSpeak-ng must be installed separately from: https://github.com/espeak-ng/espeak-ng/releases
