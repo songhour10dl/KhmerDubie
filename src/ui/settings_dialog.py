@@ -48,7 +48,7 @@ class SettingsDialog(QDialog):
         tts_layout = QFormLayout(tts_group)
         
         self.tts_provider = QComboBox()
-        self.tts_provider.addItems(["edge", "gtts", "google", "local", "kiri"])
+        self.tts_provider.addItems(["elevenlabs", "edge", "gtts", "google", "local", "kiri"])
         self.tts_provider.currentTextChanged.connect(self.on_tts_provider_changed)
         tts_layout.addRow("Provider:", self.tts_provider)
         
@@ -158,16 +158,19 @@ class SettingsDialog(QDialog):
     
     def on_tts_provider_changed(self, provider: str):
         """Update UI when TTS provider changes."""
-        # Free providers don't need API key
-        needs_api_key = provider in ["kiri", "google"]
-        needs_base_url = provider in ["kiri"]
+        # Providers that need API key
+        needs_api_key = provider in ["elevenlabs", "kiri", "google"]
+        needs_base_url = provider in ["kiri", "elevenlabs"]
         
         self.tts_key.setEnabled(needs_api_key)
         self.tts_key_label.setEnabled(needs_api_key)
         self.tts_url.setEnabled(needs_base_url)
         
         # Update voice placeholder based on provider
-        if provider == "edge":
+        if provider == "elevenlabs":
+            self.tts_voice.setPlaceholderText("Leave empty to auto-select multilingual voice")
+            self.tts_voice.setEnabled(True)
+        elif provider == "edge":
             self.tts_voice.setPlaceholderText("km-KH-SreymomNeural or km-KH-PisethNeural")
         elif provider == "gtts":
             self.tts_voice.setPlaceholderText("km (fixed)")
@@ -185,8 +188,10 @@ class SettingsDialog(QDialog):
         try:
             provider = self.tts_provider.currentText()
             
-            # Show installation hint for free providers
-            if provider == "edge":
+            # Show installation hint for providers
+            if provider == "elevenlabs":
+                hint = "\nNote: If test fails, install with: pip install elevenlabs\nGet API key from: https://elevenlabs.io"
+            elif provider == "edge":
                 hint = "\nNote: If test fails, install with: pip install edge-tts"
             elif provider == "gtts":
                 hint = "\nNote: If test fails, install with: pip install gtts"

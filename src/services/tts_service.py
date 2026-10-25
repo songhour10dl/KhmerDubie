@@ -1,4 +1,4 @@
-"""Enhanced TTS service with multiple free provider options."""
+"""Enhanced TTS service with multiple professional provider options."""
 import requests
 from pathlib import Path
 from typing import Optional, List
@@ -14,7 +14,7 @@ logger = setup_logger(__name__)
 class TTSService:
     """Text-to-Speech service adapter with multiple provider support."""
     
-    SUPPORTED_PROVIDERS = ['kiri', 'google', 'edge', 'gtts', 'local']
+    SUPPORTED_PROVIDERS = ['elevenlabs', 'kiri', 'google', 'edge', 'gtts', 'local']
     
     def __init__(self, provider: str = None, api_key: str = None, 
                  base_url: str = None, voice: str = None):
@@ -29,7 +29,9 @@ class TTSService:
         test_text = "សួស្តី"  # Hello in Khmer
         
         try:
-            if self.provider == "kiri":
+            if self.provider == "elevenlabs":
+                return self._test_elevenlabs_connection(test_text)
+            elif self.provider == "kiri":
                 return self._test_kiri_connection(test_text)
             elif self.provider == "google":
                 return self._test_google_connection(test_text)
@@ -50,7 +52,9 @@ class TTSService:
     def get_available_voices(self) -> list[str]:
         """Get available Khmer voices from the provider."""
         try:
-            if self.provider == "edge":
+            if self.provider == "elevenlabs":
+                return self._get_elevenlabs_voices()
+            elif self.provider == "edge":
                 return self._get_edge_voices()
             elif self.provider == "google":
                 return ["km-KH-Standard-A", "km-KH-Standard-B", "km-KH-Standard-C", "km-KH-Standard-D"]
@@ -72,7 +76,9 @@ class TTSService:
         try:
             logger.info(f"Synthesizing with {self.provider}: {text[:50]}...")
             
-            if self.provider == "kiri":
+            if self.provider == "elevenlabs":
+                return self._synthesize_elevenlabs(text, output_path, voice)
+            elif self.provider == "kiri":
                 return self._synthesize_kiri(text, output_path, voice)
             elif self.provider == "google":
                 return self._synthesize_google(text, output_path, voice)
@@ -88,6 +94,92 @@ class TTSService:
         except Exception as e:
             logger.error(f"TTS synthesis failed: {e}")
             raise RuntimeError(f"TTS synthesis failed: {e}") from e
+    
+    # ============= ELEVENLABS (BEST QUALITY, PROFESSIONAL) =============
+    
+    def _test_elevenlabs_connection(self, test_text: str) -> tuple[bool, str]:
+        """Test ElevenLabs API connection."""
+        if not self.api_key:
+            return False, "ElevenLabs API key not configured"
+        
+        try:
+            from elevenlabs import ElevenLabs
+            client = ElevenLabs(api_key=self.api_key)
+            
+            # Get available voices to test connection
+            voices = client.voices.get_all()
+            return True, f"ElevenLabs connected - {len(voices.voices)} voices available (BEST quality)"
+            
+        except ImportError:
+            return False, "ElevenLabs not installed. Run: pip install elevenlabs"
+        except Exception as e:
+            return False, f"ElevenLabs connection failed: {str(e)}"
+    
+    def _get_elevenlabs_voices(self) -> list[str]:
+        """Get available voices from ElevenLabs."""
+        try:
+            from elevenlabs import ElevenLabs
+            client = ElevenLabs(api_key=self.api_key)
+            
+            voices_response = client.voices.get_all()
+            voices = [v.name for v in voices_response.voices]
+            
+            logger.info(f"Retrieved {len(voices)} voices from ElevenLabs")
+            return voices
+            
+        except Exception as e:
+            logger.warning(f"Failed to retrieve ElevenLabs voices: {e}")
+            return ["Adam", "Bella", "Charlie", "Dorothy"]  # Default options
+    
+    def _synthesize_elevenlabs(self, text: str, output_path: str, voice: str) -> str:
+        """Synthesize using ElevenLabs (BEST quality, natural, expressive)."""
+        try:
+            from elevenlabs import ElevenLabs, VoiceSettings
+            
+            client = ElevenLabs(api_key=self.api_key)
+            
+            # Use provided voice or get first available multilingual voice
+            if not voice:
+                voices = client.voices.get_all()
+                # Try to find a multilingual voice
+                for v in voices.voices:
+                    if hasattr(v, 'labels') and 'multilingual' in str(v.labels).lower():
+                        voice = v.voice_id
+                        break
+                if not voice:
+                    voice = voices.voices[0].voice_id if voices.voices else "Adam"
+            
+            logger.info(f"Using ElevenLabs voice: {voice}")
+            
+            # Generate audio with optimized settings for dubbing
+            audio = client.text_to_speech.convert(
+                voice_id=voice,
+                text=text,
+                model_id="eleven_multilingual_v2",  # Best for non-English
+                voice_settings=VoiceSettings(
+                    stability=0.5,  # Balanced stability
+                    similarity_boost=0.75,  # High similarity to training
+                    style=0.5,  # Moderate style
+                    use_speaker_boost=True  # Enhance speaker characteristics
+                )
+            )
+            
+            # Save audio
+            output_path = str(Path(output_path).with_suffix('.mp3'))
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(output_path, 'wb') as f:
+                for chunk in audio:
+                    f.write(chunk)
+            
+            logger.info(f"ElevenLabs audio generated successfully: {output_path}")
+            return output_path
+            
+        except ImportError:
+            raise RuntimeError("ElevenLabs not installed. Run: pip install elevenlabs")
+        except Exception as e:
+            logger.error(f"ElevenLabs TTS error: {e}")
+            raise RuntimeError(f"ElevenLabs TTS failed: {str(e)}") from e
     
     # ============= EDGE TTS (FREE, RECOMMENDED) =============
     

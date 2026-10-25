@@ -1,5 +1,4 @@
 """Enhanced STT service with speaker diarization support."""
-import whisper
 from pathlib import Path
 from typing import List, Optional
 from ..utils.logger import setup_logger
@@ -16,11 +15,15 @@ class STTService:
     def __init__(self, model_name: str = None):
         self.model_name = model_name or config.stt_model
         self.model = None
-        self._load_model()
+        # Don't load model on init - load lazily when transcribe() is called
     
     def _load_model(self) -> None:
-        """Load Whisper model."""
+        """Load Whisper model lazily."""
+        if self.model is not None:
+            return  # Already loaded
+        
         try:
+            import whisper  # Import only when needed
             logger.info(f"Loading Whisper model: {self.model_name}")
             self.model = whisper.load_model(self.model_name)
             logger.info("Whisper model loaded successfully")
@@ -30,6 +33,9 @@ class STTService:
     
     def transcribe(self, audio_path: str, language: str = "en") -> List[DialogueSegment]:
         """Transcribe audio with speaker detection based on audio patterns."""
+        # Load model lazily on first use
+        self._load_model()
+        
         try:
             logger.info(f"Transcribing audio: {audio_path}")
             
