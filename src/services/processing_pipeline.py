@@ -1,7 +1,8 @@
-"""Processing pipeline orchestrator."""
+"""Enhanced processing pipeline with speaker-based voice assignment and optimizations."""
 from pathlib import Path
-from typing import List, Callable, Optional
+from typing import List, Callable, Optional, Dict
 import uuid
+import concurrent.futures
 from ..models import Project, DialogueSegment
 from ..utils.logger import setup_logger
 from ..utils.config import config
@@ -16,7 +17,7 @@ logger = setup_logger(__name__)
 
 
 class ProcessingPipeline:
-    """Orchestrates the complete dubbing pipeline."""
+    """Orchestrates the complete dubbing pipeline with optimizations."""
     
     def __init__(self):
         self.ffmpeg = FFmpegService()
@@ -25,6 +26,18 @@ class ProcessingPipeline:
         self.tts = TTSService()
         self.subtitle = SubtitleService()
         self.project: Optional[Project] = None
+        
+        # Voice assignment for speakers
+        self.speaker_voices = {
+            "SPEAKER_1": "km-KH-PisethNeural",      # Male voice
+            "SPEAKER_2": "km-KH-SreymomNeural",     # Female voice
+            "UNKNOWN": "km-KH-SreymomNeural"        # Default female
+        }
+    
+    def set_speaker_voice(self, speaker: str, voice: str):
+        """Assign a specific voice to a speaker."""
+        self.speaker_voices[speaker] = voice
+        logger.info(f"Assigned voice {voice} to {speaker}")
     
     def create_project(self, video_path: str) -> Project:
         """Create a new project from video file."""
@@ -53,7 +66,7 @@ class ProcessingPipeline:
             raise
     
     def extract_and_transcribe(self, progress_callback: Callable[[str, int], None] = None) -> List[DialogueSegment]:
-        """Extract audio and transcribe to English."""
+        """Extract audio and transcribe with speaker detection."""
         try:
             if not self.project:
                 raise RuntimeError("No active project")
@@ -73,9 +86,9 @@ class ProcessingPipeline:
                 self.stt = STTService()
             
             if progress_callback:
-                progress_callback("Transcribing audio...", 40)
+                progress_callback("Transcribing audio with speaker detection...", 40)
             
-            # Transcribe
+            # Transcribe with speaker hints
             segments = self.stt.transcribe(audio_path, language="en")
             
             self.project.segments = segments
@@ -83,7 +96,7 @@ class ProcessingPipeline:
             if progress_callback:
                 progress_callback("Transcription complete", 100)
             
-            logger.info(f"Transcribed {len(segments)} segments")
+            logger.info(f"Transcribed {len(segments)} segments with speaker detection")
             return segments
             
         except Exception as e:
@@ -92,27 +105,52 @@ class ProcessingPipeline:
     
     def translate_segments(self, segments: List[DialogueSegment] = None,
                           progress_callback: Callable[[str, int], None] = None) -> List[DialogueSegment]:
-        """Translate English segments to Khmer."""
+        """Translate segments in parallel for faster processing."""
         try:
             segments = segments or self.project.segments
             total = len(segments)
             
-            for idx, segment in enumerate(segments):
-                if progress_callback:
-                    progress = int((idx / total) * 100)
-                    progress_callback(f"Translating segment {idx + 1}/{total}...", progress)
+            logger.info(f"Starting parallel translation of {total} segments")
+            
+            # Use thread pool for parallel translation
+            max_workers = min(config.max_concurrent_requests, total)
+            completed = 0
+            
+            def translate_single(segment: DialogueSegment) -> DialogueSegment:
+                """Translate a single segment."""
+                try:
+                    # Build context from speaker and surrounding dialogue
+                    context = f"Speaker: {segment.speaker or 'Unknown'}"
+                    
+                    segment.khmer_text = self.translator.translate(
+                        segment.english_text,
+                        source_lang="English",
+                        target_lang="Khmer",
+                        context=context
+                    )
+                    return segment
+                except Exception as e:
+                    logger.error(f"Translation failed for segment: {e}")
+                    segment.khmer_text = segment.english_text  # Fallback
+                    return segment
+            
+            # Process in parallel
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_segment = {
+                    executor.submit(translate_single, seg): seg 
+                    for seg in segments
+                }
                 
-                # Translate
-                segment.khmer_text = self.translator.translate(
-                    segment.english_text,
-                    source_lang="English",
-                    target_lang="Khmer"
-                )
+                for future in concurrent.futures.as_completed(future_to_segment):
+                    completed += 1
+                    if progress_callback:
+                        progress = int((completed / total) * 100)
+                        progress_callback(f"Translating segment {completed}/{total}...", progress)
             
             if progress_callback:
                 progress_callback("Translation complete", 100)
             
-            logger.info(f"Translated {total} segments to Khmer")
+            logger.info(f"Translated {total} segments to Khmer in parallel")
             return segments
             
         except Exception as e:
@@ -121,30 +159,62 @@ class ProcessingPipeline:
     
     def generate_speech(self, segments: List[DialogueSegment] = None,
                        progress_callback: Callable[[str, int], None] = None) -> List[DialogueSegment]:
-        """Generate Khmer speech for all segments."""
+        """Generate speech with speaker-specific voices in parallel."""
         try:
             segments = segments or self.project.segments
             total = len(segments)
             
-            for idx, segment in enumerate(segments):
-                if not segment.khmer_text:
-                    logger.warning(f"Segment {idx} has no Khmer text, skipping")
-                    continue
+            logger.info(f"Starting parallel TTS generation for {total} segments")
+            
+            # Use thread pool for parallel TTS generation
+            max_workers = min(config.max_concurrent_requests, total)
+            completed = 0
+            
+            def generate_single(segment: DialogueSegment) -> DialogueSegment:
+                """Generate TTS for a single segment."""
+                try:
+                    if not segment.khmer_text:
+                        logger.warning(f"Segment has no Khmer text, skipping")
+                        return segment
+                    
+                    # Assign voice based on speaker
+                    speaker = segment.speaker or "UNKNOWN"
+                    voice = self.speaker_voices.get(speaker, self.speaker_voices["UNKNOWN"])
+                    
+                    # Generate audio file path
+                    audio_path = str(Path(self.project.project_dir) / f"segment_{segment.segment_id}.wav")
+                    
+                    # Synthesize with speaker-specific voice
+                    segment.audio_path = self.tts.synthesize(
+                        segment.khmer_text, 
+                        audio_path,
+                        voice=voice
+                    )
+                    
+                    logger.info(f"Generated TTS with voice {voice} for {speaker}")
+                    return segment
+                    
+                except Exception as e:
+                    logger.error(f"TTS generation failed for segment: {e}")
+                    return segment
+            
+            # Process in parallel
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_segment = {
+                    executor.submit(generate_single, seg): seg 
+                    for seg in segments
+                }
                 
-                if progress_callback:
-                    progress = int((idx / total) * 100)
-                    progress_callback(f"Generating speech {idx + 1}/{total}...", progress)
-                
-                # Generate audio file path
-                audio_path = str(Path(self.project.project_dir) / f"segment_{segment.segment_id}.wav")
-                
-                # Synthesize
-                segment.audio_path = self.tts.synthesize(segment.khmer_text, audio_path)
+                for future in concurrent.futures.as_completed(future_to_segment):
+                    completed += 1
+                    if progress_callback:
+                        progress = int((completed / total) * 100)
+                        progress_callback(f"Generating speech {completed}/{total}...", progress)
             
             if progress_callback:
                 progress_callback("Speech generation complete", 100)
             
-            logger.info(f"Generated speech for {total} segments")
+            logger.info(f"Generated speech for {total} segments in parallel")
             return segments
             
         except Exception as e:

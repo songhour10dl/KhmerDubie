@@ -105,28 +105,94 @@ class MainWindow(QMainWindow):
         metadata_layout = QVBoxLayout(metadata_group)
         self.metadata_text = QTextEdit()
         self.metadata_text.setReadOnly(True)
-        self.metadata_text.setMaximumHeight(200)
+        self.metadata_text.setMaximumHeight(150)
         metadata_layout.addWidget(self.metadata_text)
         layout.addWidget(metadata_group)
+        
+        # Voice assignment section
+        voice_group = QGroupBox("Voice Assignment (Speaker Detection)")
+        voice_layout = QFormLayout(voice_group)
+        
+        from PySide6.QtWidgets import QComboBox
+        
+        self.speaker1_voice = QComboBox()
+        self.speaker1_voice.addItems([
+            "km-KH-PisethNeural (Male)",
+            "km-KH-SreymomNeural (Female)"
+        ])
+        self.speaker1_voice.setCurrentIndex(0)  # Male default
+        voice_layout.addRow("Speaker 1 (Usually Male):", self.speaker1_voice)
+        
+        self.speaker2_voice = QComboBox()
+        self.speaker2_voice.addItems([
+            "km-KH-SreymomNeural (Female)",
+            "km-KH-PisethNeural (Male)"
+        ])
+        self.speaker2_voice.setCurrentIndex(0)  # Female default
+        voice_layout.addRow("Speaker 2 (Usually Female):", self.speaker2_voice)
+        
+        layout.addWidget(voice_group)
         
         # Processing buttons
         process_group = QGroupBox("Processing")
         process_layout = QVBoxLayout(process_group)
         
+        # Transcribe section
+        transcribe_layout = QHBoxLayout()
         self.transcribe_btn = QPushButton("1. Transcribe Audio")
         self.transcribe_btn.clicked.connect(self.start_transcription)
         self.transcribe_btn.setEnabled(False)
-        process_layout.addWidget(self.transcribe_btn)
+        transcribe_layout.addWidget(self.transcribe_btn)
         
+        self.transcribe_pause_btn = QPushButton("Pause")
+        self.transcribe_pause_btn.clicked.connect(self.pause_transcription)
+        self.transcribe_pause_btn.setEnabled(False)
+        transcribe_layout.addWidget(self.transcribe_pause_btn)
+        
+        self.transcribe_stop_btn = QPushButton("Stop")
+        self.transcribe_stop_btn.clicked.connect(self.stop_transcription)
+        self.transcribe_stop_btn.setEnabled(False)
+        transcribe_layout.addWidget(self.transcribe_stop_btn)
+        
+        process_layout.addLayout(transcribe_layout)
+        
+        # Translate section
+        translate_layout = QHBoxLayout()
         self.translate_btn = QPushButton("2. Translate to Khmer")
         self.translate_btn.clicked.connect(self.start_translation)
         self.translate_btn.setEnabled(False)
-        process_layout.addWidget(self.translate_btn)
+        translate_layout.addWidget(self.translate_btn)
         
+        self.translate_pause_btn = QPushButton("Pause")
+        self.translate_pause_btn.clicked.connect(self.pause_translation)
+        self.translate_pause_btn.setEnabled(False)
+        translate_layout.addWidget(self.translate_pause_btn)
+        
+        self.translate_stop_btn = QPushButton("Stop")
+        self.translate_stop_btn.clicked.connect(self.stop_translation)
+        self.translate_stop_btn.setEnabled(False)
+        translate_layout.addWidget(self.translate_stop_btn)
+        
+        process_layout.addLayout(translate_layout)
+        
+        # TTS section
+        tts_layout = QHBoxLayout()
         self.generate_speech_btn = QPushButton("3. Generate Khmer Speech")
         self.generate_speech_btn.clicked.connect(self.start_tts)
         self.generate_speech_btn.setEnabled(False)
-        process_layout.addWidget(self.generate_speech_btn)
+        tts_layout.addWidget(self.generate_speech_btn)
+        
+        self.tts_pause_btn = QPushButton("Pause")
+        self.tts_pause_btn.clicked.connect(self.pause_tts)
+        self.tts_pause_btn.setEnabled(False)
+        tts_layout.addWidget(self.tts_pause_btn)
+        
+        self.tts_stop_btn = QPushButton("Stop")
+        self.tts_stop_btn.clicked.connect(self.stop_tts)
+        self.tts_stop_btn.setEnabled(False)
+        tts_layout.addWidget(self.tts_stop_btn)
+        
+        process_layout.addLayout(tts_layout)
         
         layout.addWidget(process_group)
         layout.addStretch()
@@ -138,7 +204,7 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         
-        label = QLabel("English Transcript")
+        label = QLabel("English Transcript with Speaker Detection")
         label_font = QFont()
         label_font.setPointSize(12)
         label_font.setBold(True)
@@ -146,9 +212,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(label)
         
         self.transcript_table = QTableWidget()
-        self.transcript_table.setColumnCount(3)
-        self.transcript_table.setHorizontalHeaderLabels(["Time", "Duration", "Text"])
-        self.transcript_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.transcript_table.setColumnCount(4)
+        self.transcript_table.setHorizontalHeaderLabels(["Time", "Duration", "Speaker", "Text"])
+        self.transcript_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         layout.addWidget(self.transcript_table)
         
         return widget
@@ -158,7 +224,7 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         
-        label = QLabel("Khmer Translation")
+        label = QLabel("Khmer Translation with Voice Assignment")
         label_font = QFont()
         label_font.setPointSize(12)
         label_font.setBold(True)
@@ -166,10 +232,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(label)
         
         self.translation_table = QTableWidget()
-        self.translation_table.setColumnCount(4)
-        self.translation_table.setHorizontalHeaderLabels(["Time", "English", "Khmer", "Status"])
-        self.translation_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.translation_table.setColumnCount(5)
+        self.translation_table.setHorizontalHeaderLabels(["Time", "Speaker", "English", "Khmer", "Status"])
         self.translation_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.translation_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         layout.addWidget(self.translation_table)
         
         return widget
@@ -267,71 +333,182 @@ Audio Tracks: {len(meta.audio_tracks)}
             return
         
         self.set_processing_state(True, "Transcribing...")
+        self.transcribe_pause_btn.setEnabled(True)
+        self.transcribe_stop_btn.setEnabled(True)
+        
         self.current_worker = TranscriptionWorker(self.pipeline)
         self.current_worker.progress.connect(self.update_progress)
         self.current_worker.finished.connect(self.on_transcription_finished)
         self.current_worker.error.connect(self.on_worker_error)
         self.current_worker.start()
     
+    def pause_transcription(self):
+        """Pause/resume transcription."""
+        if self.current_worker and isinstance(self.current_worker, TranscriptionWorker):
+            if self.transcribe_pause_btn.text() == "Pause":
+                self.current_worker.pause()
+                self.transcribe_pause_btn.setText("Resume")
+            else:
+                self.current_worker.resume()
+                self.transcribe_pause_btn.setText("Pause")
+    
+    def stop_transcription(self):
+        """Stop transcription."""
+        if self.current_worker and isinstance(self.current_worker, TranscriptionWorker):
+            self.current_worker.stop()
+            self.transcribe_pause_btn.setEnabled(False)
+            self.transcribe_stop_btn.setEnabled(False)
+            self.transcribe_pause_btn.setText("Pause")
+    
     def on_transcription_finished(self, segments):
         """Handle transcription completion."""
         self.set_processing_state(False, "Transcription complete")
+        self.transcribe_pause_btn.setEnabled(False)
+        self.transcribe_stop_btn.setEnabled(False)
+        self.transcribe_pause_btn.setText("Pause")
         self.update_transcript_table(segments)
         self.translate_btn.setEnabled(True)
         self.tabs.setCurrentIndex(1)  # Switch to transcript tab
     
     def update_transcript_table(self, segments):
-        """Update transcript table with segments."""
+        """Update transcript table with segments and speaker info."""
+        self.transcript_table.setColumnCount(4)
+        self.transcript_table.setHorizontalHeaderLabels(["Time", "Duration", "Speaker", "Text"])
         self.transcript_table.setRowCount(len(segments))
+        
         for idx, seg in enumerate(segments):
             self.transcript_table.setItem(idx, 0, QTableWidgetItem(f"{seg.start_time:.2f}s"))
             self.transcript_table.setItem(idx, 1, QTableWidgetItem(f"{seg.duration:.2f}s"))
-            self.transcript_table.setItem(idx, 2, QTableWidgetItem(seg.english_text))
+            
+            speaker_text = seg.speaker or "Unknown"
+            if seg.speaker == "SPEAKER_1":
+                speaker_text += " (Male)"
+            elif seg.speaker == "SPEAKER_2":
+                speaker_text += " (Female)"
+            self.transcript_table.setItem(idx, 2, QTableWidgetItem(speaker_text))
+            self.transcript_table.setItem(idx, 3, QTableWidgetItem(seg.english_text))
+        
+        self.transcript_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
     
     def start_translation(self):
         """Start translation process."""
         if not self.project or not self.project.segments:
             return
         
-        self.set_processing_state(True, "Translating...")
+        self.set_processing_state(True, "Translating (parallel processing)...")
+        self.translate_pause_btn.setEnabled(True)
+        self.translate_stop_btn.setEnabled(True)
+        
         self.current_worker = TranslationWorker(self.pipeline)
         self.current_worker.progress.connect(self.update_progress)
         self.current_worker.finished.connect(self.on_translation_finished)
         self.current_worker.error.connect(self.on_worker_error)
         self.current_worker.start()
     
+    def pause_translation(self):
+        """Pause/resume translation."""
+        if self.current_worker and isinstance(self.current_worker, TranslationWorker):
+            if self.translate_pause_btn.text() == "Pause":
+                self.current_worker.pause()
+                self.translate_pause_btn.setText("Resume")
+            else:
+                self.current_worker.resume()
+                self.translate_pause_btn.setText("Pause")
+    
+    def stop_translation(self):
+        """Stop translation."""
+        if self.current_worker and isinstance(self.current_worker, TranslationWorker):
+            self.current_worker.stop()
+            self.translate_pause_btn.setEnabled(False)
+            self.translate_stop_btn.setEnabled(False)
+            self.translate_pause_btn.setText("Pause")
+    
     def on_translation_finished(self, segments):
         """Handle translation completion."""
         self.set_processing_state(False, "Translation complete")
+        self.translate_pause_btn.setEnabled(False)
+        self.translate_stop_btn.setEnabled(False)
+        self.translate_pause_btn.setText("Pause")
         self.update_translation_table(segments)
         self.generate_speech_btn.setEnabled(True)
         self.tabs.setCurrentIndex(2)  # Switch to translation tab
     
     def update_translation_table(self, segments):
-        """Update translation table with segments."""
+        """Update translation table with segments and voice info."""
+        self.translation_table.setColumnCount(5)
+        self.translation_table.setHorizontalHeaderLabels(["Time", "Speaker", "English", "Khmer", "Status"])
         self.translation_table.setRowCount(len(segments))
+        
         for idx, seg in enumerate(segments):
             self.translation_table.setItem(idx, 0, QTableWidgetItem(f"{seg.start_time:.2f}s"))
-            self.translation_table.setItem(idx, 1, QTableWidgetItem(seg.english_text))
-            self.translation_table.setItem(idx, 2, QTableWidgetItem(seg.khmer_text or ""))
-            status = "✓" if seg.khmer_text else "✗"
-            self.translation_table.setItem(idx, 3, QTableWidgetItem(status))
+            
+            speaker_text = seg.speaker or "Unknown"
+            if seg.speaker == "SPEAKER_1":
+                speaker_text += " (♂)"
+            elif seg.speaker == "SPEAKER_2":
+                speaker_text += " (♀)"
+            self.translation_table.setItem(idx, 1, QTableWidgetItem(speaker_text))
+            
+            self.translation_table.setItem(idx, 2, QTableWidgetItem(seg.english_text))
+            self.translation_table.setItem(idx, 3, QTableWidgetItem(seg.khmer_text or ""))
+            
+            status = "✓" if seg.khmer_text and seg.audio_path else "✓" if seg.khmer_text else "✗"
+            self.translation_table.setItem(idx, 4, QTableWidgetItem(status))
+        
+        self.translation_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.translation_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
     
     def start_tts(self):
-        """Start TTS generation process."""
+        """Start TTS generation process with speaker-based voice assignment."""
         if not self.project or not self.project.segments:
             return
         
-        self.set_processing_state(True, "Generating speech...")
+        # Apply voice assignments from UI
+        speaker1_text = self.speaker1_voice.currentText()
+        speaker2_text = self.speaker2_voice.currentText()
+        
+        # Extract voice IDs (before the parenthesis)
+        speaker1_voice = speaker1_text.split(" (")[0]
+        speaker2_voice = speaker2_text.split(" (")[0]
+        
+        self.pipeline.set_speaker_voice("SPEAKER_1", speaker1_voice)
+        self.pipeline.set_speaker_voice("SPEAKER_2", speaker2_voice)
+        self.pipeline.set_speaker_voice("UNKNOWN", speaker2_voice)
+        
+        self.set_processing_state(True, "Generating speech (parallel processing)...")
+        self.tts_pause_btn.setEnabled(True)
+        self.tts_stop_btn.setEnabled(True)
+        
         self.current_worker = TTSWorker(self.pipeline)
         self.current_worker.progress.connect(self.update_progress)
         self.current_worker.finished.connect(self.on_tts_finished)
         self.current_worker.error.connect(self.on_worker_error)
         self.current_worker.start()
     
+    def pause_tts(self):
+        """Pause/resume TTS."""
+        if self.current_worker and isinstance(self.current_worker, TTSWorker):
+            if self.tts_pause_btn.text() == "Pause":
+                self.current_worker.pause()
+                self.tts_pause_btn.setText("Resume")
+            else:
+                self.current_worker.resume()
+                self.tts_pause_btn.setText("Pause")
+    
+    def stop_tts(self):
+        """Stop TTS."""
+        if self.current_worker and isinstance(self.current_worker, TTSWorker):
+            self.current_worker.stop()
+            self.tts_pause_btn.setEnabled(False)
+            self.tts_stop_btn.setEnabled(False)
+            self.tts_pause_btn.setText("Pause")
+    
     def on_tts_finished(self, segments):
         """Handle TTS completion."""
         self.set_processing_state(False, "Speech generation complete")
+        self.tts_pause_btn.setEnabled(False)
+        self.tts_stop_btn.setEnabled(False)
+        self.tts_pause_btn.setText("Pause")
         self.update_translation_table(segments)
         self.export_btn.setEnabled(True)
         self.tabs.setCurrentIndex(3)  # Switch to export tab
