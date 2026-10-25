@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QFileDialog, QTextEdit, QProgressBar, QMessageBox,
     QTabWidget, QSplitter, QGroupBox, QTableWidget, QTableWidgetItem,
-    QHeaderView
+    QHeaderView, QFormLayout, QComboBox
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QColor, QPalette
@@ -112,8 +112,6 @@ class MainWindow(QMainWindow):
         # Voice assignment section
         voice_group = QGroupBox("Voice Assignment (Speaker Detection)")
         voice_layout = QFormLayout(voice_group)
-        
-        from PySide6.QtWidgets import QComboBox
         
         self.speaker1_voice = QComboBox()
         self.speaker1_voice.addItems([

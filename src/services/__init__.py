@@ -6,7 +6,14 @@ from .subtitle_service import SubtitleService
 # Import STT and pipeline separately to handle whisper dependency
 try:
     from .stt_service import STTService
-    from .processing_pipeline import ProcessingPipeline
+    _stt_available = True
+except ImportError:
+    _stt_available = False
+
+# ProcessingPipeline can be imported even without STT (will lazy load)
+from .processing_pipeline import ProcessingPipeline
+
+if _stt_available:
     __all__ = [
         'FFmpegService',
         'STTService',
@@ -15,11 +22,11 @@ try:
         'SubtitleService',
         'ProcessingPipeline'
     ]
-except ImportError:
-    # Whisper not installed yet
+else:
     __all__ = [
         'FFmpegService',
         'OmniRouteService',
         'TTSService',
-        'SubtitleService'
+        'SubtitleService',
+        'ProcessingPipeline'
     ]
