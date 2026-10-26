@@ -109,9 +109,41 @@ class MainWindow(QMainWindow):
         metadata_layout.addWidget(self.metadata_text)
         layout.addWidget(metadata_group)
         
-        # Voice assignment section
-        voice_group = QGroupBox("Voice Assignment (Speaker Detection)")
-        voice_layout = QFormLayout(voice_group)
+        # Voice Mode Selection
+        mode_group = QGroupBox("Voice Mode")
+        mode_layout = QVBoxLayout(mode_group)
+        
+        mode_radio_layout = QHBoxLayout()
+        
+        self.voice_mode_auto = QRadioButton("Auto-Detect Male/Female")
+        self.voice_mode_auto.setChecked(True)
+        self.voice_mode_auto.toggled.connect(self.on_voice_mode_changed)
+        mode_radio_layout.addWidget(self.voice_mode_auto)
+        
+        self.voice_mode_single = QRadioButton("Use Single Voice")
+        self.voice_mode_single.toggled.connect(self.on_voice_mode_changed)
+        mode_radio_layout.addWidget(self.voice_mode_single)
+        
+        mode_layout.addLayout(mode_radio_layout)
+        
+        # Single voice selection
+        self.single_voice_group = QGroupBox("Choose Voice (Single Mode)")
+        self.single_voice_group.setEnabled(False)
+        single_voice_layout = QFormLayout(self.single_voice_group)
+        
+        self.single_voice_combo = QComboBox()
+        self.single_voice_combo.addItems([
+            "km-KH-SreymomNeural (Female)",
+            "km-KH-PisethNeural (Male)"
+        ])
+        single_voice_layout.addRow("Voice:", self.single_voice_combo)
+        
+        mode_layout.addWidget(self.single_voice_group)
+        layout.addWidget(mode_group)
+        
+        # Voice assignment section (only for auto-detect mode)
+        self.voice_assign_group = QGroupBox("Voice Assignment (Auto-Detect Mode)")
+        voice_layout = QFormLayout(self.voice_assign_group)
         
         self.speaker1_voice = QComboBox()
         self.speaker1_voice.addItems([
@@ -129,7 +161,8 @@ class MainWindow(QMainWindow):
         self.speaker2_voice.setCurrentIndex(0)  # Female default
         voice_layout.addRow("Speaker 2 (Usually Female):", self.speaker2_voice)
         
-        layout.addWidget(voice_group)
+        self.voice_assign_group.setLayout(voice_layout)
+        layout.addWidget(self.voice_assign_group)
         
         # Processing buttons
         process_group = QGroupBox("Processing")
@@ -456,22 +489,45 @@ Audio Tracks: {len(meta.audio_tracks)}
         self.translation_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.translation_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
     
+    def on_voice_mode_changed(self):
+        """Handle voice mode toggle between auto-detect and single voice."""
+        if self.voice_mode_auto.isChecked():
+            self.voice_assign_group.setEnabled(True)
+            self.single_voice_group.setEnabled(False)
+        else:
+            self.voice_assign_group.setEnabled(False)
+            self.single_voice_group.setEnabled(True)
+    
     def start_tts(self):
-        """Start TTS generation process with speaker-based voice assignment."""
+        """Start TTS generation process with voice assignment."""
         if not self.project or not self.project.segments:
             return
         
-        # Apply voice assignments from UI
-        speaker1_text = self.speaker1_voice.currentText()
-        speaker2_text = self.speaker2_voice.currentText()
-        
-        # Extract voice IDs (before the parenthesis)
-        speaker1_voice = speaker1_text.split(" (")[0]
-        speaker2_voice = speaker2_text.split(" (")[0]
-        
-        self.pipeline.set_speaker_voice("SPEAKER_1", speaker1_voice)
-        self.pipeline.set_speaker_voice("SPEAKER_2", speaker2_voice)
-        self.pipeline.set_speaker_voice("UNKNOWN", speaker2_voice)
+        # Apply voice settings based on mode
+        if self.voice_mode_auto.isChecked():
+            # Auto-detect mode: use speaker-specific voices
+            speaker1_text = self.speaker1_voice.currentText()
+            speaker2_text = self.speaker2_voice.currentText()
+            
+            speaker1_voice = speaker1_text.split(" (")[0]
+            speaker2_voice = speaker2_text.split(" (")[0]
+            
+            self.pipeline.set_speaker_voice("SPEAKER_1", speaker1_voice)
+            self.pipeline.set_speaker_voice("SPEAKER_2", speaker2_voice)
+            self.pipeline.set_speaker_voice("UNKNOWN", speaker2_voice)
+            
+            self.status_label.setText("Generating speech (auto-detect mode, male/female voices)")
+        else:
+            # Single voice mode: use same voice for all
+            single_voice_text = self.single_voice_combo.currentText()
+            single_voice = single_voice_text.split(" (")[0]
+            
+            self.pipeline.set_speaker_voice("SPEAKER_1", single_voice)
+            self.pipeline.set_speaker_voice("SPEAKER_2", single_voice)
+            self.pipeline.set_speaker_voice("UNKNOWN", single_voice)
+            
+            voice_type = "Male" if "Piseth" in single_voice else "Female"
+            self.status_label.setText(f"Generating speech (single {voice_type} voice)")
         
         self.set_processing_state(True, "Generating speech (parallel processing)...")
         self.tts_pause_btn.setEnabled(True)
@@ -482,24 +538,6 @@ Audio Tracks: {len(meta.audio_tracks)}
         self.current_worker.finished.connect(self.on_tts_finished)
         self.current_worker.error.connect(self.on_worker_error)
         self.current_worker.start()
-    
-    def pause_tts(self):
-        """Pause/resume TTS."""
-        if self.current_worker and isinstance(self.current_worker, TTSWorker):
-            if self.tts_pause_btn.text() == "Pause":
-                self.current_worker.pause()
-                self.tts_pause_btn.setText("Resume")
-            else:
-                self.current_worker.resume()
-                self.tts_pause_btn.setText("Pause")
-    
-    def stop_tts(self):
-        """Stop TTS."""
-        if self.current_worker and isinstance(self.current_worker, TTSWorker):
-            self.current_worker.stop()
-            self.tts_pause_btn.setEnabled(False)
-            self.tts_stop_btn.setEnabled(False)
-            self.tts_pause_btn.setText("Pause")
     
     def on_tts_finished(self, segments):
         """Handle TTS completion."""
