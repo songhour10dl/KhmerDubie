@@ -286,9 +286,32 @@ class FFmpegService:
             
             logger.info(f"Composing audio timeline from {len(valid_segments)} segments")
             
-            # Split segments into batches to balance performance
+            # Sort segments by start time to handle overlaps
+            valid_segments.sort(key=lambda s: s.start_time)
+            
+            # Check for overlaps and trim segments if needed
+            processed_segments = []
+            for i, segment in enumerate(valid_segments):
+                seg_start = segment.start_time
+                seg_end = segment.end_time
+                
+                # Check if next segment overlaps
+                if i < len(valid_segments) - 1:
+                    next_start = valid_segments[i + 1].start_time
+                    if seg_end > next_start:
+                        # Trim this segment to not overlap with next
+                        seg_end = next_start - 0.1  # Leave 100ms gap
+                
+                processed_segments.append({
+                    'path': segment.audio_path,
+                    'start': seg_start,
+                    'end': seg_end,
+                    'duration': seg_end - seg_start
+                })
+            
+            # Split into batches
             batch_size = 15
-            batches = [valid_segments[i:i+batch_size] for i in range(0, len(valid_segments), batch_size)]
+            batches = [processed_segments[i:i+batch_size] for i in range(0, len(processed_segments), batch_size)]
             
             temp_dir = Path(config.temp_dir) / "audio_temp"
             temp_dir.mkdir(parents=True, exist_ok=True)
@@ -304,14 +327,20 @@ class FFmpegService:
                 inputs.extend(['-f', 'lavfi', '-t', str(total_duration), '-i', 'anullsrc=r=48000:cl=stereo'])
                 
                 # Add all segments in this batch
-                for i, segment in enumerate(batch):
-                    inputs.extend(['-i', str(segment.audio_path)])
-                    delay_ms = int(segment.start_time * 1000)
-                    filter_parts.append(f"[{i+1}]adelay={delay_ms}|{delay_ms}[a{i}]")
+                for i, seg in enumerate(batch):
+                    inputs.extend(['-i', str(seg['path'])])
+                    delay_ms = int(seg['start'] * 1000)
+                    
+                    # Trim segment to its duration and apply delay
+                    filter_parts.append(
+                        f"[{i+1}]atrim=0:{seg['duration']},asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms}[a{i}]"
+                    )
                 
-                # Mix base with all delayed segments
+                # Mix with higher volume (normalize=0 prevents volume reduction)
                 mix_inputs = '[0]' + ''.join([f"[a{i}]" for i in range(len(batch))])
-                filter_parts.append(f"{mix_inputs}amix=inputs={len(batch)+1}:duration=first:dropout_transition=0")
+                filter_parts.append(
+                    f"{mix_inputs}amix=inputs={len(batch)+1}:duration=first:dropout_transition=0:normalize=0[mixed];[mixed]volume=2.0"
+                )
                 
                 filter_complex = ';'.join(filter_parts)
                 
@@ -324,7 +353,7 @@ class FFmpegService:
                     '-filter_complex', filter_complex,
                     '-ar', '48000',
                     '-ac', '2',
-                    '-b:a', '192k',  # Compressed audio to reduce file size
+                    '-b:a', '192k',
                     '-t', str(total_duration),
                     '-y',
                     str(batch_output)
@@ -334,12 +363,13 @@ class FFmpegService:
                 subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
                 batch_files.append(str(batch_output))
             
-            # Mix all batch outputs
+            # Mix all batch outputs with volume boost
             if len(batch_files) == 1:
-                # Only one batch, convert to final format
+                # Only one batch, just convert with volume boost
                 cmd = [
                     self.ffmpeg_path,
                     '-i', batch_files[0],
+                    '-filter:a', 'volume=1.5',
                     '-ar', '48000',
                     '-ac', '2',
                     '-y',
@@ -347,12 +377,12 @@ class FFmpegService:
                 ]
                 subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
             else:
-                # Mix batches
+                # Mix batches with volume boost
                 inputs = []
                 for bf in batch_files:
                     inputs.extend(['-i', bf])
                 
-                filter_str = f'amix=inputs={len(batch_files)}:duration=first:dropout_transition=0'
+                filter_str = f'amix=inputs={len(batch_files)}:duration=first:normalize=0,volume=1.5'
                 
                 cmd = [self.ffmpeg_path]
                 cmd.extend(inputs)
