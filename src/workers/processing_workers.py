@@ -89,6 +89,10 @@ class TranscriptionWorker(CancellableWorker):
             self.error.emit(str(e))
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            # Ensure thread cleanup
+            self.quit()
+            self.wait()
 
 
 class TranslationWorker(CancellableWorker):
@@ -122,6 +126,10 @@ class TranslationWorker(CancellableWorker):
             self.error.emit(str(e))
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            # Ensure thread cleanup
+            self.quit()
+            self.wait()
 
 
 class TTSWorker(CancellableWorker):
@@ -155,6 +163,10 @@ class TTSWorker(CancellableWorker):
             self.error.emit(str(e))
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            # Ensure thread cleanup
+            self.quit()
+            self.wait()
 
 
 class ExportWorker(CancellableWorker):
@@ -196,3 +208,7 @@ class ExportWorker(CancellableWorker):
             self.error.emit(str(e))
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            # Ensure thread cleanup
+            self.quit()
+            self.wait()
