@@ -47,11 +47,12 @@ class ProcessingPipeline:
             # Extract metadata
             metadata = self.ffmpeg.get_video_info(video_path)
             
-            # Create project
+            # Create project with short directory name
+            project_id = str(uuid.uuid4())[:8]  # Use only first 8 chars of UUID
             project = Project(
                 video_path=video_path,
                 metadata=metadata,
-                project_dir=str(config.temp_dir / str(uuid.uuid4()))
+                project_dir=str(config.temp_dir / f"p{project_id}")
             )
             
             # Create project directory
@@ -181,8 +182,9 @@ class ProcessingPipeline:
                     speaker = segment.speaker or "UNKNOWN"
                     voice = self.speaker_voices.get(speaker, self.speaker_voices["UNKNOWN"])
                     
-                    # Generate audio file path
-                    audio_path = str(Path(self.project.project_dir) / f"segment_{segment.segment_id}.wav")
+                    # Generate audio file path with short name
+                    seg_id = segment.segment_id[:8]  # Use only first 8 chars
+                    audio_path = str(Path(self.project.project_dir) / f"s{seg_id}.wav")
                     
                     # Synthesize with speaker-specific voice
                     segment.audio_path = self.tts.synthesize(
