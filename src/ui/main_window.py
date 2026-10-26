@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QFileDialog, QTextEdit, QProgressBar, QMessageBox,
     QTabWidget, QSplitter, QGroupBox, QTableWidget, QTableWidgetItem,
-    QHeaderView, QFormLayout, QComboBox
+    QHeaderView, QFormLayout, QComboBox, QRadioButton, QCheckBox
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QColor, QPalette
@@ -167,6 +167,14 @@ class MainWindow(QMainWindow):
         # Processing buttons
         process_group = QGroupBox("Processing")
         process_layout = QVBoxLayout(process_group)
+        
+        # Auto-run checkbox
+        auto_run_layout = QHBoxLayout()
+        self.auto_run_checkbox = QCheckBox("Auto-Run All Steps (Transcribe → Translate → Generate Speech)")
+        self.auto_run_checkbox.setStyleSheet("QCheckBox { font-weight: bold; color: #2ECC71; }")
+        auto_run_layout.addWidget(self.auto_run_checkbox)
+        auto_run_layout.addStretch()
+        process_layout.addLayout(auto_run_layout)
         
         # Transcribe section
         transcribe_layout = QHBoxLayout()
@@ -399,7 +407,13 @@ Audio Tracks: {len(meta.audio_tracks)}
         self.transcribe_pause_btn.setText("Pause")
         self.update_transcript_table(segments)
         self.translate_btn.setEnabled(True)
-        self.tabs.setCurrentIndex(1)  # Switch to transcript tab
+        
+        # Auto-run: proceed to translation
+        if self.auto_run_checkbox.isChecked():
+            self.status_label.setText("Auto-run enabled: Starting translation...")
+            self.start_translation()
+        else:
+            self.tabs.setCurrentIndex(1)  # Switch to transcript tab
     
     def update_transcript_table(self, segments):
         """Update transcript table with segments and speaker info."""
@@ -462,7 +476,13 @@ Audio Tracks: {len(meta.audio_tracks)}
         self.translate_pause_btn.setText("Pause")
         self.update_translation_table(segments)
         self.generate_speech_btn.setEnabled(True)
-        self.tabs.setCurrentIndex(2)  # Switch to translation tab
+        
+        # Auto-run: proceed to TTS generation
+        if self.auto_run_checkbox.isChecked():
+            self.status_label.setText("Auto-run enabled: Starting TTS generation...")
+            self.start_tts()
+        else:
+            self.tabs.setCurrentIndex(2)  # Switch to translation tab
     
     def update_translation_table(self, segments):
         """Update translation table with segments and voice info."""
@@ -498,7 +518,73 @@ Audio Tracks: {len(meta.audio_tracks)}
             self.voice_assign_group.setEnabled(False)
             self.single_voice_group.setEnabled(True)
     
+    def on_voice_mode_changed(self):
+        """Handle voice mode toggle between auto-detect and single voice."""
+        if self.voice_mode_auto.isChecked():
+            self.voice_assign_group.setEnabled(True)
+            self.single_voice_group.setEnabled(False)
+        else:
+            self.voice_assign_group.setEnabled(False)
+            self.single_voice_group.setEnabled(True)
+    
+    def pause_tts(self):
+        """Pause/resume TTS."""
+        if self.current_worker and isinstance(self.current_worker, TTSWorker):
+            if self.tts_pause_btn.text() == "Pause":
+                self.current_worker.pause()
+                self.tts_pause_btn.setText("Resume")
+            else:
+                self.current_worker.resume()
+                self.tts_pause_btn.setText("Pause")
+    
+    def stop_tts(self):
+        """Stop TTS."""
+        if self.current_worker and isinstance(self.current_worker, TTSWorker):
+            self.current_worker.stop()
+            self.tts_pause_btn.setEnabled(False)
+            self.tts_stop_btn.setEnabled(False)
+            self.tts_pause_btn.setText("Pause")
+    
     def start_tts(self):
+        """Start TTS generation process with voice assignment."""
+        if not self.project or not self.project.segments:
+            return
+        
+        # Apply voice settings based on mode
+        if self.voice_mode_auto.isChecked():
+            # Auto-detect mode: use speaker-specific voices
+            speaker1_text = self.speaker1_voice.currentText()
+            speaker2_text = self.speaker2_voice.currentText()
+            
+            speaker1_voice = speaker1_text.split(" (")[0]
+            speaker2_voice = speaker2_text.split(" (")[0]
+            
+            self.pipeline.set_speaker_voice("SPEAKER_1", speaker1_voice)
+            self.pipeline.set_speaker_voice("SPEAKER_2", speaker2_voice)
+            self.pipeline.set_speaker_voice("UNKNOWN", speaker2_voice)
+            
+            self.status_label.setText("Generating speech (auto-detect mode, male/female voices)")
+        else:
+            # Single voice mode: use same voice for all
+            single_voice_text = self.single_voice_combo.currentText()
+            single_voice = single_voice_text.split(" (")[0]
+            
+            self.pipeline.set_speaker_voice("SPEAKER_1", single_voice)
+            self.pipeline.set_speaker_voice("SPEAKER_2", single_voice)
+            self.pipeline.set_speaker_voice("UNKNOWN", single_voice)
+            
+            voice_type = "Male" if "Piseth" in single_voice else "Female"
+            self.status_label.setText(f"Generating speech (single {voice_type} voice)")
+        
+        self.set_processing_state(True, "Generating speech (parallel processing)...")
+        self.tts_pause_btn.setEnabled(True)
+        self.tts_stop_btn.setEnabled(True)
+        
+        self.current_worker = TTSWorker(self.pipeline)
+        self.current_worker.progress.connect(self.update_progress)
+        self.current_worker.finished.connect(self.on_tts_finished)
+        self.current_worker.error.connect(self.on_worker_error)
+        self.current_worker.start()
         """Start TTS generation process with voice assignment."""
         if not self.project or not self.project.segments:
             return
@@ -547,7 +633,21 @@ Audio Tracks: {len(meta.audio_tracks)}
         self.tts_pause_btn.setText("Pause")
         self.update_translation_table(segments)
         self.export_btn.setEnabled(True)
-        self.tabs.setCurrentIndex(3)  # Switch to export tab
+        
+        # Show alert if auto-run was enabled
+        if self.auto_run_checkbox.isChecked():
+            QMessageBox.information(
+                self,
+                "Auto-Run Complete!",
+                "✓ Transcription complete\n"
+                "✓ Translation complete\n"
+                "✓ Khmer speech generated\n\n"
+                "All 3 steps finished! Ready to export your dubbed video.\n\n"
+                "Go to Export tab and choose output location."
+            )
+            self.tabs.setCurrentIndex(3)  # Switch to export tab
+        else:
+            self.tabs.setCurrentIndex(3)  # Switch to export tab
     
     def select_output_path(self):
         """Select output file path."""
