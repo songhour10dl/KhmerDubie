@@ -234,18 +234,15 @@ class ProcessingPipeline:
             if progress_callback:
                 progress_callback("Preparing audio segments...", 10)
             
-            # Collect audio segments
-            audio_files = [seg.audio_path for seg in self.project.segments if seg.audio_path]
+            # Get video duration for timeline composition
+            video_duration = self.project.metadata.duration
             
-            if not audio_files:
-                raise RuntimeError("No audio files generated")
-            
-            # Concatenate audio
+            # Compose audio timeline with proper synchronization
             if progress_callback:
-                progress_callback("Concatenating audio...", 30)
+                progress_callback("Composing audio timeline...", 30)
             
             merged_audio = str(Path(self.project.project_dir) / "merged_audio.wav")
-            self.ffmpeg.concatenate_audio(audio_files, merged_audio)
+            self.ffmpeg.compose_audio_timeline(self.project.segments, merged_audio, video_duration)
             
             # Merge with video
             if progress_callback:

@@ -266,3 +266,68 @@ class FFmpegService:
             # Clean up concat file
             if concat_file.exists():
                 concat_file.unlink()
+    
+    def compose_audio_timeline(self, segments: List, output_path: str, total_duration: float) -> str:
+        """Compose audio from segments at their exact timestamps with silence padding.
+        
+        Args:
+            segments: List of DialogueSegment objects with start_time, end_time, and audio_path
+            output_path: Path for the output audio file
+            total_duration: Total duration of the video in seconds
+        """
+        try:
+            # Build complex filter for timeline composition
+            # Each audio segment is delayed to match its start_time
+            filter_parts = []
+            inputs = []
+            
+            for i, segment in enumerate(segments):
+                if not segment.audio_path or not Path(segment.audio_path).exists():
+                    continue
+                    
+                inputs.extend(['-i', str(segment.audio_path)])
+                
+                # Add silence delay to place audio at correct timestamp
+                delay_ms = int(segment.start_time * 1000)
+                filter_parts.append(f"[{i}]adelay={delay_ms}|{delay_ms}[a{i}]")
+            
+            if not filter_parts:
+                raise RuntimeError("No valid audio segments to compose")
+            
+            # Mix all delayed audio streams together
+            mix_inputs = ''.join([f"[a{i}]" for i in range(len(filter_parts))])
+            filter_parts.append(f"{mix_inputs}amix=inputs={len(filter_parts)}:duration=longest:dropout_transition=0")
+            
+            filter_complex = ';'.join(filter_parts)
+            
+            # Build FFmpeg command
+            cmd = [self.ffmpeg_path]
+            cmd.extend(inputs)
+            cmd.extend([
+                '-filter_complex', filter_complex,
+                '-ar', '48000',  # Sample rate
+                '-ac', '2',       # Stereo
+                '-t', str(total_duration),  # Limit to video duration
+                '-y',
+                output_path
+            ])
+            
+            logger.info(f"Composing timeline audio from {len(filter_parts)} segments")
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=600
+            )
+            
+            if not Path(output_path).exists():
+                raise RuntimeError("Audio composition failed: output file not created")
+            
+            logger.info(f"Audio timeline composed successfully: {output_path}")
+            return output_path
+            
+        except subprocess.CalledProcessError as e:
+            logger.error(f"FFmpeg timeline composition failed: {e.stderr}")
+            raise RuntimeError(f"Audio timeline composition failed: {e.stderr}") from e
