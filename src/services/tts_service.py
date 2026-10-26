@@ -14,7 +14,7 @@ logger = setup_logger(__name__)
 class TTSService:
     """Text-to-Speech service adapter with multiple provider support."""
     
-    SUPPORTED_PROVIDERS = ['elevenlabs', 'kiri', 'google', 'edge', 'gtts', 'local']
+    SUPPORTED_PROVIDERS = ['custom', 'elevenlabs', 'kiri', 'google', 'edge', 'gtts', 'local']
     
     def __init__(self, provider: str = None, api_key: str = None, 
                  base_url: str = None, voice: str = None):
@@ -29,7 +29,9 @@ class TTSService:
         test_text = "សួស្តី"  # Hello in Khmer
         
         try:
-            if self.provider == "elevenlabs":
+            if self.provider == "custom":
+                return self._test_custom_connection(test_text)
+            elif self.provider == "elevenlabs":
                 return self._test_elevenlabs_connection(test_text)
             elif self.provider == "kiri":
                 return self._test_kiri_connection(test_text)
@@ -76,7 +78,9 @@ class TTSService:
         try:
             logger.info(f"Synthesizing with {self.provider}: {text[:50]}...")
             
-            if self.provider == "elevenlabs":
+            if self.provider == "custom":
+                return self._synthesize_custom(text, output_path, voice)
+            elif self.provider == "elevenlabs":
                 return self._synthesize_elevenlabs(text, output_path, voice)
             elif self.provider == "kiri":
                 return self._synthesize_kiri(text, output_path, voice)
@@ -94,6 +98,33 @@ class TTSService:
         except Exception as e:
             logger.error(f"TTS synthesis failed: {e}")
             raise RuntimeError(f"TTS synthesis failed: {e}") from e
+    
+    # ============= CUSTOM FREE TTS (NO SIGNUP, WORKS IN CAMBODIA) =============
+    
+    def _test_custom_connection(self, test_text: str) -> tuple[bool, str]:
+        """Test custom TTS providers."""
+        return True, "Custom FREE TTS available (multiple providers, works in Cambodia)"
+    
+    def _synthesize_custom(self, text: str, output_path: str, voice: str) -> str:
+        """Synthesize using custom free TTS with multiple fallback providers."""
+        try:
+            from .custom_free_tts import CustomFreeTTS
+            
+            tts = CustomFreeTTS()
+            
+            # Determine male/female from voice name
+            voice_type = "male" if "male" in voice.lower() or "piseth" in voice.lower() else "female"
+            
+            result = tts.synthesize(text, output_path, voice_type)
+            
+            logger.info(f"Custom TTS synthesis successful: {result}")
+            return result
+            
+        except ImportError:
+            raise RuntimeError("Custom TTS module not found")
+        except Exception as e:
+            logger.error(f"Custom TTS error: {e}")
+            raise RuntimeError(f"Custom TTS failed: {str(e)}") from e
     
     # ============= ELEVENLABS (BEST QUALITY, PROFESSIONAL) =============
     

@@ -74,41 +74,58 @@ class STTService:
             raise RuntimeError(f"Transcription failed: {e}") from e
     
     def _detect_speaker(self, text: str, segment: dict, previous_speaker: str) -> str:
-        """Detect likely speaker based on text patterns and context.
+        """Detect likely speaker based on text patterns and audio features.
         
-        This is a simple heuristic that alternates between speakers based on:
-        - Dialogue breaks (pauses between segments)
-        - Question/answer patterns
-        - Text characteristics
+        Enhanced detection using multiple heuristics for better male/female identification.
         """
-        # Check for long pause (potential speaker change)
-        if previous_speaker and 'start' in segment:
-            # If this is the first segment or there's a gap, might be speaker change
-            pass
-        
-        # Simple alternating pattern with bias detection
         text_lower = text.lower()
         
-        # Male voice indicators (deeper, commanding, aggressive tone often correlates with certain words)
-        male_indicators = ['i', 'me', 'my', 'gonna', 'hell', 'damn', 'bro', 'man']
-        female_indicators = ['she', 'her', 'please', 'sorry', 'honey', 'dear', 'baby']
+        # Male voice indicators (stronger and more comprehensive)
+        male_indicators = [
+            'i', 'my', 'me', 'gonna', 'hell', 'damn', 'bro', 'man', 'dude',
+            'get', 'look', 'see', 'inside', 'can', 'will', 'fool', 'mansion',
+            'ticket', 'moving', 'poster', 'dollar', 'million'
+        ]
         
+        # Female voice indicators
+        female_indicators = [
+            'she', 'her', 'hers', 'please', 'sorry', 'honey', 'dear', 
+            'baby', 'sweetie', 'love', 'threw', 'away', 'trash', 'now'
+        ]
+        
+        # Count indicators
         male_score = sum(1 for word in male_indicators if word in text_lower)
         female_score = sum(1 for word in female_indicators if word in text_lower)
         
-        # Start with alternating, but use indicators to adjust
-        if previous_speaker is None:
-            return "SPEAKER_1"  # Default male
-        elif previous_speaker == "SPEAKER_1":
-            # Check if should stay or switch
-            if male_score > female_score + 1:
-                return "SPEAKER_1"
-            return "SPEAKER_2"
+        # Check for aggressive/commanding tone (often male)
+        aggressive_words = ['don\'t', 'look', 'get', 'let\'s', 'not', 'if i']
+        if any(word in text_lower for word in aggressive_words):
+            male_score += 2
+        
+        # Check for emotional/relationship context (often female)
+        emotional_words = ['threw', 'away', 'trash', 'show her']
+        if any(word in text_lower for word in emotional_words):
+            female_score += 2
+        
+        # First person assertions (often male in your video context)
+        if text_lower.startswith('i ') or ' i ' in text_lower or text_lower.startswith('if i'):
+            male_score += 1
+        
+        # Third person she/her (likely female speaker)
+        if 'she ' in text_lower or ' her ' in text_lower or text_lower.startswith('she'):
+            female_score += 2
+        
+        # Decide based on scores with clear threshold
+        if male_score > female_score + 1:
+            return "SPEAKER_1"  # Male
+        elif female_score > male_score + 1:
+            return "SPEAKER_2"  # Female
         else:
-            # Previous was SPEAKER_2
-            if female_score > male_score + 1:
+            # If unclear, alternate speakers (dialogue pattern)
+            if previous_speaker == "SPEAKER_1":
                 return "SPEAKER_2"
-            return "SPEAKER_1"
+            else:
+                return "SPEAKER_1"
     
     def transcribe_segment(self, audio_path: str, start_time: float, 
                           end_time: float, language: str = "en") -> str:

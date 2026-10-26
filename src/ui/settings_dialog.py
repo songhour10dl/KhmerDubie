@@ -48,7 +48,7 @@ class SettingsDialog(QDialog):
         tts_layout = QFormLayout(tts_group)
         
         self.tts_provider = QComboBox()
-        self.tts_provider.addItems(["elevenlabs", "edge", "gtts", "google", "local", "kiri"])
+        self.tts_provider.addItems(["custom", "elevenlabs", "edge", "gtts", "google", "local", "kiri"])
         self.tts_provider.currentTextChanged.connect(self.on_tts_provider_changed)
         tts_layout.addRow("Provider:", self.tts_provider)
         
@@ -167,7 +167,10 @@ class SettingsDialog(QDialog):
         self.tts_url.setEnabled(needs_base_url)
         
         # Update voice placeholder based on provider
-        if provider == "elevenlabs":
+        if provider == "custom":
+            self.tts_voice.setPlaceholderText("Leave empty (auto-selects best voice)")
+            self.tts_voice.setEnabled(False)
+        elif provider == "elevenlabs":
             self.tts_voice.setPlaceholderText("Leave empty to auto-select multilingual voice")
             self.tts_voice.setEnabled(True)
         elif provider == "edge":
