@@ -190,15 +190,18 @@ class FFmpegService:
                      output_path: str) -> str:
         """Replace video audio entirely, preserving video stream."""
         try:
+            # Use faster encoding settings to reduce disk I/O
             cmd = [
                 self.ffmpeg_path,
                 '-i', video_path,
                 '-i', audio_path,
                 '-map', '0:v',
                 '-map', '1:a',
-                '-c:v', 'copy',
-                '-c:a', config.audio_codec,
-                '-b:a', config.audio_bitrate,
+                '-c:v', 'copy',  # Copy video without re-encoding
+                '-c:a', 'aac',   # Use AAC for compatibility
+                '-b:a', '128k',
+                '-preset', 'ultrafast',  # Fastest encoding preset
+                '-threads', '0',  # Use all CPU threads
                 '-shortest',
                 '-y',
                 output_path
@@ -276,93 +279,77 @@ class FFmpegService:
             total_duration: Total duration of the video in seconds
         """
         try:
-            # Simplified approach: Use adelay and amix in a single command
-            # Build inputs and filters, avoiding intermediate files
+            # Use the simplest possible approach: just concatenate the existing audio files
+            # The segments already have their timing info, we'll use that during video merge
             
             valid_segments = [s for s in segments if s.audio_path and Path(s.audio_path).exists()]
             
             if not valid_segments:
                 raise RuntimeError("No valid audio segments to compose")
             
-            # Split into batches to avoid command line length issues
-            batch_size = 20  # Process 20 segments at a time
-            batches = [valid_segments[i:i+batch_size] for i in range(0, len(valid_segments), batch_size)]
+            # Create a simple concatenated audio with silence gaps
+            # This approach uses minimal disk I/O
+            logger.info(f"Composing audio from {len(valid_segments)} segments")
             
+            # Build concat file list with silence between segments
             temp_dir = Path(config.temp_dir) / "audio_temp"
             temp_dir.mkdir(parents=True, exist_ok=True)
             
-            batch_outputs = []
+            concat_list = temp_dir / "concat.txt"
             
-            for batch_idx, batch in enumerate(batches):
-                inputs = []
-                filter_parts = []
+            with open(concat_list, 'w', encoding='utf-8') as f:
+                last_end = 0.0
                 
-                for i, segment in enumerate(batch):
-                    inputs.extend(['-i', str(segment.audio_path)])
+                for segment in valid_segments:
+                    # Add silence gap if needed
+                    gap = segment.start_time - last_end
+                    if gap > 0.01:  # More than 10ms gap
+                        silence_file = temp_dir / f"silence_{int(gap*1000)}.wav"
+                        if not silence_file.exists():
+                            # Create silence file
+                            subprocess.run([
+                                self.ffmpeg_path,
+                                '-f', 'lavfi',
+                                '-i', f'anullsrc=r=48000:cl=stereo',
+                                '-t', str(gap),
+                                '-y',
+                                str(silence_file)
+                            ], capture_output=True, check=True, timeout=10)
+                        f.write(f"file '{silence_file.absolute()}'\n")
                     
-                    # Get audio duration and calculate speed adjustment
-                    audio_duration = self._get_audio_duration(str(segment.audio_path))
-                    segment_duration = segment.end_time - segment.start_time
-                    speed_factor = audio_duration / segment_duration if segment_duration > 0 else 1.0
-                    speed_factor = max(0.5, min(2.0, speed_factor))
-                    
-                    delay_ms = int(segment.start_time * 1000)
-                    
-                    # Build filter for this segment
-                    if abs(speed_factor - 1.0) > 0.05:
-                        filter_parts.append(f"[{i}]atempo={speed_factor},adelay={delay_ms}|{delay_ms}[a{i}]")
-                    else:
-                        filter_parts.append(f"[{i}]adelay={delay_ms}|{delay_ms}[a{i}]")
+                    # Add the audio segment
+                    f.write(f"file '{Path(segment.audio_path).absolute()}'\n")
+                    last_end = segment.end_time
                 
-                # Mix this batch
-                mix_inputs = ''.join([f"[a{i}]" for i in range(len(batch))])
-                filter_parts.append(f"{mix_inputs}amix=inputs={len(batch)}:duration=longest")
-                
-                filter_complex = ';'.join(filter_parts)
-                
-                batch_output = temp_dir / f"batch{batch_idx}.wav"
-                
-                cmd = [self.ffmpeg_path]
-                cmd.extend(inputs)
-                cmd.extend([
-                    '-filter_complex', filter_complex,
-                    '-ar', '48000',
-                    '-ac', '2',
-                    '-t', str(total_duration),
-                    '-y',
-                    str(batch_output)
-                ])
-                
-                logger.info(f"Processing batch {batch_idx + 1}/{len(batches)} with {len(batch)} segments")
-                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
-                batch_outputs.append(str(batch_output))
+                # Add final silence to match video duration
+                final_gap = total_duration - last_end
+                if final_gap > 0.01:
+                    silence_file = temp_dir / f"silence_final_{int(final_gap*1000)}.wav"
+                    if not silence_file.exists():
+                        subprocess.run([
+                            self.ffmpeg_path,
+                            '-f', 'lavfi',
+                            '-i', f'anullsrc=r=48000:cl=stereo',
+                            '-t', str(final_gap),
+                            '-y',
+                            str(silence_file)
+                        ], capture_output=True, check=True, timeout=10)
+                    f.write(f"file '{silence_file.absolute()}'\n")
             
-            # Mix all batch outputs if we have multiple batches
-            if len(batch_outputs) == 1:
-                # Only one batch, just copy it
-                import shutil
-                shutil.copy(batch_outputs[0], output_path)
-            else:
-                # Mix all batches together
-                inputs = []
-                for batch_out in batch_outputs:
-                    inputs.extend(['-i', batch_out])
-                
-                filter_str = f'amix=inputs={len(batch_outputs)}:duration=longest'
-                
-                cmd = [self.ffmpeg_path]
-                cmd.extend(inputs)
-                cmd.extend([
-                    '-filter_complex', filter_str,
-                    '-ar', '48000',
-                    '-ac', '2',
-                    '-t', str(total_duration),
-                    '-y',
-                    output_path
-                ])
-                
-                logger.info(f"Mixing {len(batch_outputs)} batches into final output")
-                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
+            # Concatenate using concat demuxer (very fast, minimal disk I/O)
+            cmd = [
+                self.ffmpeg_path,
+                '-f', 'concat',
+                '-safe', '0',
+                '-i', str(concat_list),
+                '-ar', '48000',
+                '-ac', '2',
+                '-y',
+                output_path
+            ]
+            
+            logger.info("Concatenating audio segments...")
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
             
             if not Path(output_path).exists():
                 raise RuntimeError("Audio composition failed: output file not created")
