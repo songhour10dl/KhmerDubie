@@ -279,83 +279,68 @@ class FFmpegService:
             total_duration: Total duration of the video in seconds
         """
         try:
-            # Use the simplest possible approach: just concatenate the existing audio files
-            # The segments already have their timing info, we'll use that during video merge
-            
             valid_segments = [s for s in segments if s.audio_path and Path(s.audio_path).exists()]
             
             if not valid_segments:
                 raise RuntimeError("No valid audio segments to compose")
             
-            # Create a simple concatenated audio with silence gaps
-            # This approach uses minimal disk I/O
-            logger.info(f"Composing audio from {len(valid_segments)} segments")
+            logger.info(f"Composing audio timeline from {len(valid_segments)} segments")
             
-            # Build concat file list with silence between segments
+            # Create silent base track
             temp_dir = Path(config.temp_dir) / "audio_temp"
             temp_dir.mkdir(parents=True, exist_ok=True)
             
-            concat_list = temp_dir / "concat.txt"
+            base_audio = temp_dir / "base.wav"
             
-            with open(concat_list, 'w', encoding='utf-8') as f:
-                last_end = 0.0
-                
-                for segment in valid_segments:
-                    # Add silence gap if needed
-                    gap = segment.start_time - last_end
-                    if gap > 0.01:  # More than 10ms gap
-                        silence_file = temp_dir / f"silence_{int(gap*1000)}.wav"
-                        if not silence_file.exists():
-                            # Create silence file
-                            subprocess.run([
-                                self.ffmpeg_path,
-                                '-f', 'lavfi',
-                                '-i', f'anullsrc=r=48000:cl=stereo',
-                                '-t', str(gap),
-                                '-y',
-                                str(silence_file)
-                            ], capture_output=True, check=True, timeout=10)
-                        f.write(f"file '{silence_file.absolute()}'\n")
-                    
-                    # Add the audio segment
-                    f.write(f"file '{Path(segment.audio_path).absolute()}'\n")
-                    last_end = segment.end_time
-                
-                # Add final silence to match video duration
-                final_gap = total_duration - last_end
-                if final_gap > 0.01:
-                    silence_file = temp_dir / f"silence_final_{int(final_gap*1000)}.wav"
-                    if not silence_file.exists():
-                        subprocess.run([
-                            self.ffmpeg_path,
-                            '-f', 'lavfi',
-                            '-i', f'anullsrc=r=48000:cl=stereo',
-                            '-t', str(final_gap),
-                            '-y',
-                            str(silence_file)
-                        ], capture_output=True, check=True, timeout=10)
-                    f.write(f"file '{silence_file.absolute()}'\n")
-            
-            # Concatenate using concat demuxer (very fast, minimal disk I/O)
             cmd = [
                 self.ffmpeg_path,
-                '-f', 'concat',
-                '-safe', '0',
-                '-i', str(concat_list),
+                '-f', 'lavfi',
+                '-i', f'anullsrc=r=48000:cl=stereo',
+                '-t', str(total_duration),
                 '-ar', '48000',
                 '-ac', '2',
                 '-y',
-                output_path
+                str(base_audio)
             ]
             
-            logger.info("Concatenating audio segments...")
-            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
+            
+            # Overlay each segment at its exact timestamp one by one
+            # This is slower but ensures perfect sync
+            current_audio = str(base_audio)
+            
+            for i, segment in enumerate(valid_segments):
+                temp_output = temp_dir / f"mix{i}.wav"
+                
+                # Overlay this segment at its start_time
+                cmd = [
+                    self.ffmpeg_path,
+                    '-i', current_audio,
+                    '-i', str(segment.audio_path),
+                    '-filter_complex',
+                    f'[1]adelay={int(segment.start_time * 1000)}|{int(segment.start_time * 1000)}[delayed];[0][delayed]amix=inputs=2:duration=first:dropout_transition=0',
+                    '-ar', '48000',
+                    '-ac', '2',
+                    '-y',
+                    str(temp_output)
+                ]
+                
+                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
+                
+                # Use this output as input for next iteration
+                current_audio = str(temp_output)
+                
+                if (i + 1) % 10 == 0:
+                    logger.info(f"Processed {i + 1}/{len(valid_segments)} segments")
+            
+            # Copy final result to output
+            import shutil
+            shutil.copy(current_audio, output_path)
             
             if not Path(output_path).exists():
                 raise RuntimeError("Audio composition failed: output file not created")
             
             # Clean up temp files
-            import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)
             
             logger.info(f"Audio timeline composed successfully: {output_path}")
