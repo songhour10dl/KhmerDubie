@@ -304,15 +304,17 @@ class FFmpegService:
                 
                 # Build filter: add silence padding before and after, with optional speed adjustment
                 if abs(speed_factor - 1.0) > 0.05:
-                    filter_str = f'atempo={speed_factor},apad=pad_dur={silence_after}'
+                    # Apply speed adjustment, then pad
+                    filter_str = f'[1]atempo={speed_factor}[adjusted];[0][adjusted]concat=n=2:v=0:a=1[padded];[padded]apad=pad_dur={silence_after}'
                 else:
-                    filter_str = f'apad=pad_dur={silence_after}'
+                    # Just concatenate with padding
+                    filter_str = f'[0][1]concat=n=2:v=0:a=1[padded];[padded]apad=pad_dur={silence_after}'
                 
                 cmd = [
                     self.ffmpeg_path,
                     '-f', 'lavfi', '-t', str(silence_before), '-i', 'anullsrc=r=48000:cl=stereo',
                     '-i', str(segment.audio_path),
-                    '-filter_complex', f'[0][1]{filter_str}concat=n=2:v=0:a=1',
+                    '-filter_complex', filter_str,
                     '-t', str(total_duration),
                     '-ar', '48000',
                     '-ac', '2',
