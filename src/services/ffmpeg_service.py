@@ -277,7 +277,7 @@ class FFmpegService:
         """
         try:
             # Build complex filter for timeline composition
-            # Each audio segment is delayed to match its start_time
+            # Each audio segment is trimmed, padded with silence, and placed at its timestamp
             filter_parts = []
             inputs = []
             
@@ -287,16 +287,23 @@ class FFmpegService:
                     
                 inputs.extend(['-i', str(segment.audio_path)])
                 
-                # Add silence delay to place audio at correct timestamp
+                segment_duration = segment.end_time - segment.start_time
                 delay_ms = int(segment.start_time * 1000)
-                filter_parts.append(f"[{i}]adelay={delay_ms}|{delay_ms}[a{i}]")
+                
+                # Trim audio to segment duration, then add delay to place at correct timestamp
+                # atrim: cut audio to exact segment duration
+                # asetpts: reset timestamps after trim
+                # adelay: delay to place at correct position in timeline
+                filter_parts.append(
+                    f"[{i}]atrim=0:{segment_duration},asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms}[a{i}]"
+                )
             
             if not filter_parts:
                 raise RuntimeError("No valid audio segments to compose")
             
             # Mix all delayed audio streams together
             mix_inputs = ''.join([f"[a{i}]" for i in range(len(filter_parts))])
-            filter_parts.append(f"{mix_inputs}amix=inputs={len(filter_parts)}:duration=longest:dropout_transition=0")
+            filter_parts.append(f"{mix_inputs}amix=inputs={len(filter_parts)}:duration=longest:dropout_transition=0,atrim=0:{total_duration}")
             
             filter_complex = ';'.join(filter_parts)
             
@@ -307,12 +314,11 @@ class FFmpegService:
                 '-filter_complex', filter_complex,
                 '-ar', '48000',  # Sample rate
                 '-ac', '2',       # Stereo
-                '-t', str(total_duration),  # Limit to video duration
                 '-y',
                 output_path
             ])
             
-            logger.info(f"Composing timeline audio from {len(filter_parts)} segments")
+            logger.info(f"Composing timeline audio from {len(filter_parts) - 1} segments")
             
             result = subprocess.run(
                 cmd,
