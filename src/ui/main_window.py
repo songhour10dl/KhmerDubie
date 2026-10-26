@@ -607,45 +607,6 @@ Audio Tracks: {len(meta.audio_tracks)}
         self.current_worker.finished.connect(self.on_tts_finished)
         self.current_worker.error.connect(self.on_worker_error)
         self.current_worker.start()
-        """Start TTS generation process with voice assignment."""
-        if not self.project or not self.project.segments:
-            return
-        
-        # Apply voice settings based on mode
-        if self.voice_mode_auto.isChecked():
-            # Auto-detect mode: use speaker-specific voices
-            speaker1_text = self.speaker1_voice.currentText()
-            speaker2_text = self.speaker2_voice.currentText()
-            
-            speaker1_voice = speaker1_text.split(" (")[0]
-            speaker2_voice = speaker2_text.split(" (")[0]
-            
-            self.pipeline.set_speaker_voice("SPEAKER_1", speaker1_voice)
-            self.pipeline.set_speaker_voice("SPEAKER_2", speaker2_voice)
-            self.pipeline.set_speaker_voice("UNKNOWN", speaker2_voice)
-            
-            self.status_label.setText("Generating speech (auto-detect mode, male/female voices)")
-        else:
-            # Single voice mode: use same voice for all
-            single_voice_text = self.single_voice_combo.currentText()
-            single_voice = single_voice_text.split(" (")[0]
-            
-            self.pipeline.set_speaker_voice("SPEAKER_1", single_voice)
-            self.pipeline.set_speaker_voice("SPEAKER_2", single_voice)
-            self.pipeline.set_speaker_voice("UNKNOWN", single_voice)
-            
-            voice_type = "Male" if "Piseth" in single_voice else "Female"
-            self.status_label.setText(f"Generating speech (single {voice_type} voice)")
-        
-        self.set_processing_state(True, "Generating speech (parallel processing)...")
-        self.tts_pause_btn.setEnabled(True)
-        self.tts_stop_btn.setEnabled(True)
-        
-        self.current_worker = TTSWorker(self.pipeline)
-        self.current_worker.progress.connect(self.update_progress)
-        self.current_worker.finished.connect(self.on_tts_finished)
-        self.current_worker.error.connect(self.on_worker_error)
-        self.current_worker.start()
     
     def on_tts_finished(self, segments):
         """Handle TTS completion."""
@@ -698,8 +659,8 @@ Audio Tracks: {len(meta.audio_tracks)}
         self.current_worker = ExportWorker(
             self.pipeline,
             self.project.output_path,
-            mix_original=True,
-            original_volume=0.1,
+            mix_original=False,
+            original_volume=0.0,
             generate_subtitles=True
         )
         self.current_worker.progress.connect(self.update_progress)

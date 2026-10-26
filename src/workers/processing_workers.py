@@ -123,9 +123,8 @@ class TranslationWorker(CancellableWorker):
         except Exception as e:
             self.error.emit(str(e))
         finally:
-            # Ensure thread cleanup
-            self.quit()
-            self.wait()
+            # Clean up - removed self.quit() and self.wait() to avoid deadlock
+            pass
 
 
 class TTSWorker(CancellableWorker):
@@ -201,6 +200,5 @@ class ExportWorker(CancellableWorker):
         except Exception as e:
             self.error.emit(str(e))
         finally:
-            # Ensure thread cleanup
-            self.quit()
-            self.wait()
+            # Clean up - removed self.quit() and self.wait() to avoid deadlock
+            pass
