@@ -268,7 +268,7 @@ class FFmpegService:
                 concat_file.unlink()
     
     def compose_audio_timeline(self, segments: List, output_path: str, total_duration: float) -> str:
-        """Compose audio from segments at their exact timestamps with silence padding.
+        """Compose audio from segments at their exact timestamps with speed adjustment.
         
         Args:
             segments: List of DialogueSegment objects with start_time, end_time, and audio_path
@@ -277,7 +277,7 @@ class FFmpegService:
         """
         try:
             # Build complex filter for timeline composition
-            # Each audio segment is trimmed, padded with silence, and placed at its timestamp
+            # Each audio segment is speed-adjusted to fit its time window, then placed at timestamp
             filter_parts = []
             inputs = []
             
@@ -287,23 +287,38 @@ class FFmpegService:
                     
                 inputs.extend(['-i', str(segment.audio_path)])
                 
+                # Get the duration of the generated audio file
+                audio_duration = self._get_audio_duration(str(segment.audio_path))
                 segment_duration = segment.end_time - segment.start_time
                 delay_ms = int(segment.start_time * 1000)
                 
-                # Trim audio to segment duration, then add delay to place at correct timestamp
-                # atrim: cut audio to exact segment duration
-                # asetpts: reset timestamps after trim
-                # adelay: delay to place at correct position in timeline
-                filter_parts.append(
-                    f"[{i}]atrim=0:{segment_duration},asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms}[a{i}]"
-                )
+                # Calculate speed adjustment factor
+                # If audio is longer than time window, speed it up (factor > 1)
+                # If audio is shorter, slow it down (factor < 1)
+                # But limit to reasonable range to maintain intelligibility
+                speed_factor = audio_duration / segment_duration if segment_duration > 0 else 1.0
+                speed_factor = max(0.5, min(2.0, speed_factor))  # Clamp between 0.5x and 2x
+                
+                # Apply speed adjustment if needed, then delay to correct position
+                if abs(speed_factor - 1.0) > 0.05:  # Apply if difference > 5%
+                    # atempo only accepts 0.5-2.0, so chain multiple if needed
+                    if speed_factor <= 2.0 and speed_factor >= 0.5:
+                        filter_parts.append(
+                            f"[{i}]atempo={speed_factor},adelay={delay_ms}|{delay_ms}[a{i}]"
+                        )
+                    else:
+                        # Just use delay without speed adjustment if out of range
+                        filter_parts.append(f"[{i}]adelay={delay_ms}|{delay_ms}[a{i}]")
+                else:
+                    # No speed adjustment needed, just delay
+                    filter_parts.append(f"[{i}]adelay={delay_ms}|{delay_ms}[a{i}]")
             
             if not filter_parts:
                 raise RuntimeError("No valid audio segments to compose")
             
-            # Mix all delayed audio streams together
+            # Mix all delayed audio streams together with smooth transitions
             mix_inputs = ''.join([f"[a{i}]" for i in range(len(filter_parts))])
-            filter_parts.append(f"{mix_inputs}amix=inputs={len(filter_parts)}:duration=longest:dropout_transition=0,atrim=0:{total_duration}")
+            filter_parts.append(f"{mix_inputs}amix=inputs={len(filter_parts)}:duration=longest:dropout_transition=2")
             
             filter_complex = ';'.join(filter_parts)
             
@@ -314,11 +329,12 @@ class FFmpegService:
                 '-filter_complex', filter_complex,
                 '-ar', '48000',  # Sample rate
                 '-ac', '2',       # Stereo
+                '-t', str(total_duration),  # Limit to video duration
                 '-y',
                 output_path
             ])
             
-            logger.info(f"Composing timeline audio from {len(filter_parts) - 1} segments")
+            logger.info(f"Composing timeline audio from {len(filter_parts) - 1} segments with speed adjustment")
             
             result = subprocess.run(
                 cmd,
@@ -337,3 +353,28 @@ class FFmpegService:
         except subprocess.CalledProcessError as e:
             logger.error(f"FFmpeg timeline composition failed: {e.stderr}")
             raise RuntimeError(f"Audio timeline composition failed: {e.stderr}") from e
+    
+    def _get_audio_duration(self, audio_path: str) -> float:
+        """Get duration of an audio file in seconds."""
+        try:
+            cmd = [
+                self.ffprobe_path,
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                audio_path
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=10
+            )
+            
+            return float(result.stdout.strip())
+            
+        except (subprocess.CalledProcessError, ValueError) as e:
+            logger.warning(f"Could not get audio duration for {audio_path}: {e}")
+            return 0.0
