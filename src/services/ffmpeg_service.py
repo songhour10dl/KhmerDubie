@@ -286,7 +286,7 @@ class FFmpegService:
             
             logger.info(f"Composing audio timeline from {len(valid_segments)} segments")
             
-            # Split segments into reasonable batches to balance disk I/O and command line length
+            # Split segments into batches to balance performance
             batch_size = 15
             batches = [valid_segments[i:i+batch_size] for i in range(0, len(valid_segments), batch_size)]
             
@@ -315,7 +315,8 @@ class FFmpegService:
                 
                 filter_complex = ';'.join(filter_parts)
                 
-                batch_output = temp_dir / f"b{batch_idx}.wav"
+                # Use compressed format (MP3) to reduce disk I/O
+                batch_output = temp_dir / f"b{batch_idx}.mp3"
                 
                 cmd = [self.ffmpeg_path]
                 cmd.extend(inputs)
@@ -323,22 +324,30 @@ class FFmpegService:
                     '-filter_complex', filter_complex,
                     '-ar', '48000',
                     '-ac', '2',
+                    '-b:a', '192k',  # Compressed audio to reduce file size
                     '-t', str(total_duration),
                     '-y',
                     str(batch_output)
                 ])
                 
-                logger.info(f"Processing batch {batch_idx + 1}/{len(batches)}")
+                logger.info(f"Processing batch {batch_idx + 1}/{len(batches)} - this may take a moment...")
                 subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
                 batch_files.append(str(batch_output))
             
             # Mix all batch outputs
             if len(batch_files) == 1:
-                # Only one batch, just copy
-                import shutil
-                shutil.copy(batch_files[0], output_path)
+                # Only one batch, convert to final format
+                cmd = [
+                    self.ffmpeg_path,
+                    '-i', batch_files[0],
+                    '-ar', '48000',
+                    '-ac', '2',
+                    '-y',
+                    output_path
+                ]
+                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
             else:
-                # Mix batches - each already positioned correctly in timeline
+                # Mix batches
                 inputs = []
                 for bf in batch_files:
                     inputs.extend(['-i', bf])
@@ -355,7 +364,7 @@ class FFmpegService:
                     output_path
                 ])
                 
-                logger.info(f"Mixing {len(batch_files)} batches")
+                logger.info(f"Mixing {len(batch_files)} batches - final step...")
                 subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
             
             if not Path(output_path).exists():
