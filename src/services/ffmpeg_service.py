@@ -276,11 +276,11 @@ class FFmpegService:
             total_duration: Total duration of the video in seconds
         """
         try:
-            # Process each segment individually, then combine
-            # This avoids long command lines and complex filter chains
+            # Use a more efficient approach: batch segments and use filter_complex with shorter chains
             temp_dir = Path(config.temp_dir) / "audio_temp"
             temp_dir.mkdir(parents=True, exist_ok=True)
             
+            # Process segments with speed adjustment first
             processed_segments = []
             
             for i, segment in enumerate(segments):
@@ -295,73 +295,63 @@ class FFmpegService:
                 speed_factor = audio_duration / segment_duration if segment_duration > 0 else 1.0
                 speed_factor = max(0.5, min(2.0, speed_factor))
                 
-                # Create a processed version of this segment with speed adjustment
+                # Create a processed version with padding (silence before and after)
                 temp_segment = temp_dir / f"s{i}.wav"
                 
+                # Calculate padding
+                silence_before = segment.start_time
+                silence_after = total_duration - segment.end_time
+                
+                # Build filter: add silence padding before and after, with optional speed adjustment
                 if abs(speed_factor - 1.0) > 0.05:
-                    # Apply speed adjustment
-                    cmd = [
-                        self.ffmpeg_path,
-                        '-i', str(segment.audio_path),
-                        '-filter:a', f'atempo={speed_factor}',
-                        '-y',
-                        str(temp_segment)
-                    ]
+                    filter_str = f'atempo={speed_factor},apad=pad_dur={silence_after}'
                 else:
-                    # Just copy without speed adjustment
-                    cmd = [
-                        self.ffmpeg_path,
-                        '-i', str(segment.audio_path),
-                        '-c', 'copy',
-                        '-y',
-                        str(temp_segment)
-                    ]
+                    filter_str = f'apad=pad_dur={silence_after}'
+                
+                cmd = [
+                    self.ffmpeg_path,
+                    '-f', 'lavfi', '-t', str(silence_before), '-i', 'anullsrc=r=48000:cl=stereo',
+                    '-i', str(segment.audio_path),
+                    '-filter_complex', f'[0][1]{filter_str}concat=n=2:v=0:a=1',
+                    '-t', str(total_duration),
+                    '-ar', '48000',
+                    '-ac', '2',
+                    '-y',
+                    str(temp_segment)
+                ]
                 
                 subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
-                
-                processed_segments.append({
-                    'path': str(temp_segment),
-                    'start': segment.start_time,
-                    'duration': segment_duration
-                })
+                processed_segments.append(str(temp_segment))
             
             if not processed_segments:
                 raise RuntimeError("No valid audio segments to compose")
             
-            # Create silent base audio track
-            silent_base = temp_dir / "base.wav"
-            cmd = [
-                self.ffmpeg_path,
-                '-f', 'lavfi',
-                '-i', f'anullsrc=r=48000:cl=stereo',
+            # Now mix all padded segments together in one command
+            # This is much more efficient than sequential mixing
+            inputs = []
+            for seg_path in processed_segments:
+                inputs.extend(['-i', seg_path])
+            
+            # Build amix filter for all inputs
+            filter_str = f'amix=inputs={len(processed_segments)}:duration=longest:dropout_transition=0'
+            
+            cmd = [self.ffmpeg_path]
+            cmd.extend(inputs)
+            cmd.extend([
+                '-filter_complex', filter_str,
+                '-ar', '48000',
+                '-ac', '2',
                 '-t', str(total_duration),
                 '-y',
-                str(silent_base)
-            ]
-            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
+                output_path
+            ])
             
-            # Overlay each segment at its timestamp
-            current_output = str(silent_base)
+            logger.info(f"Mixing {len(processed_segments)} pre-padded segments in one pass")
             
-            for i, seg_info in enumerate(processed_segments):
-                next_output = temp_dir / f"mix{i}.wav"
-                
-                cmd = [
-                    self.ffmpeg_path,
-                    '-i', current_output,
-                    '-i', seg_info['path'],
-                    '-filter_complex',
-                    f"[1]adelay={int(seg_info['start'] * 1000)}|{int(seg_info['start'] * 1000)}[delayed];[0][delayed]amix=inputs=2:duration=first",
-                    '-y',
-                    str(next_output)
-                ]
-                
-                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
-                current_output = str(next_output)
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
             
-            # Copy final result to output path
-            import shutil
-            shutil.copy(current_output, output_path)
+            if not Path(output_path).exists():
+                raise RuntimeError("Audio composition failed: output file not created")
             
             # Clean up temp files
             import shutil
