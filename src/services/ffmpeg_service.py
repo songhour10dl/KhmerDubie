@@ -286,61 +286,83 @@ class FFmpegService:
             
             logger.info(f"Composing audio timeline from {len(valid_segments)} segments")
             
-            # Create silent base track
+            # Split segments into reasonable batches to balance disk I/O and command line length
+            batch_size = 15
+            batches = [valid_segments[i:i+batch_size] for i in range(0, len(valid_segments), batch_size)]
+            
             temp_dir = Path(config.temp_dir) / "audio_temp"
             temp_dir.mkdir(parents=True, exist_ok=True)
             
-            base_audio = temp_dir / "base.wav"
+            batch_files = []
             
-            cmd = [
-                self.ffmpeg_path,
-                '-f', 'lavfi',
-                '-i', f'anullsrc=r=48000:cl=stereo',
-                '-t', str(total_duration),
-                '-ar', '48000',
-                '-ac', '2',
-                '-y',
-                str(base_audio)
-            ]
-            
-            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
-            
-            # Overlay each segment at its exact timestamp one by one
-            # This is slower but ensures perfect sync
-            current_audio = str(base_audio)
-            
-            for i, segment in enumerate(valid_segments):
-                temp_output = temp_dir / f"mix{i}.wav"
+            # Process each batch
+            for batch_idx, batch in enumerate(batches):
+                inputs = []
+                filter_parts = []
                 
-                # Overlay this segment at its start_time
-                cmd = [
-                    self.ffmpeg_path,
-                    '-i', current_audio,
-                    '-i', str(segment.audio_path),
-                    '-filter_complex',
-                    f'[1]adelay={int(segment.start_time * 1000)}|{int(segment.start_time * 1000)}[delayed];[0][delayed]amix=inputs=2:duration=first:dropout_transition=0',
+                # Add silent base for this batch
+                inputs.extend(['-f', 'lavfi', '-t', str(total_duration), '-i', 'anullsrc=r=48000:cl=stereo'])
+                
+                # Add all segments in this batch
+                for i, segment in enumerate(batch):
+                    inputs.extend(['-i', str(segment.audio_path)])
+                    delay_ms = int(segment.start_time * 1000)
+                    filter_parts.append(f"[{i+1}]adelay={delay_ms}|{delay_ms}[a{i}]")
+                
+                # Mix base with all delayed segments
+                mix_inputs = '[0]' + ''.join([f"[a{i}]" for i in range(len(batch))])
+                filter_parts.append(f"{mix_inputs}amix=inputs={len(batch)+1}:duration=first:dropout_transition=0")
+                
+                filter_complex = ';'.join(filter_parts)
+                
+                batch_output = temp_dir / f"b{batch_idx}.wav"
+                
+                cmd = [self.ffmpeg_path]
+                cmd.extend(inputs)
+                cmd.extend([
+                    '-filter_complex', filter_complex,
+                    '-ar', '48000',
+                    '-ac', '2',
+                    '-t', str(total_duration),
+                    '-y',
+                    str(batch_output)
+                ])
+                
+                logger.info(f"Processing batch {batch_idx + 1}/{len(batches)}")
+                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
+                batch_files.append(str(batch_output))
+            
+            # Mix all batch outputs
+            if len(batch_files) == 1:
+                # Only one batch, just copy
+                import shutil
+                shutil.copy(batch_files[0], output_path)
+            else:
+                # Mix batches - each already positioned correctly in timeline
+                inputs = []
+                for bf in batch_files:
+                    inputs.extend(['-i', bf])
+                
+                filter_str = f'amix=inputs={len(batch_files)}:duration=first:dropout_transition=0'
+                
+                cmd = [self.ffmpeg_path]
+                cmd.extend(inputs)
+                cmd.extend([
+                    '-filter_complex', filter_str,
                     '-ar', '48000',
                     '-ac', '2',
                     '-y',
-                    str(temp_output)
-                ]
+                    output_path
+                ])
                 
-                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
-                
-                # Use this output as input for next iteration
-                current_audio = str(temp_output)
-                
-                if (i + 1) % 10 == 0:
-                    logger.info(f"Processed {i + 1}/{len(valid_segments)} segments")
-            
-            # Copy final result to output
-            import shutil
-            shutil.copy(current_audio, output_path)
+                logger.info(f"Mixing {len(batch_files)} batches")
+                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
             
             if not Path(output_path).exists():
                 raise RuntimeError("Audio composition failed: output file not created")
             
             # Clean up temp files
+            import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)
             
             logger.info(f"Audio timeline composed successfully: {output_path}")
