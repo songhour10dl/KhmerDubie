@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QSplitter, QGroupBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QFormLayout, QComboBox, QRadioButton, QCheckBox
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QFont, QColor, QPalette
 from pathlib import Path
 from typing import Optional
@@ -401,6 +401,11 @@ Audio Tracks: {len(meta.audio_tracks)}
     
     def on_transcription_finished(self, segments):
         """Handle transcription completion."""
+        # Clean up thread from main thread (prevents deadlock)
+        if self.current_worker:
+            self.current_worker.quit()
+            self.current_worker.wait()
+        
         self.set_processing_state(False, "Transcription complete")
         self.transcribe_pause_btn.setEnabled(False)
         self.transcribe_stop_btn.setEnabled(False)
@@ -408,12 +413,18 @@ Audio Tracks: {len(meta.audio_tracks)}
         self.update_transcript_table(segments)
         self.translate_btn.setEnabled(True)
         
-        # Auto-run: proceed to translation
+        # Auto-run: proceed to translation using timer to avoid deadlock
         if self.auto_run_checkbox.isChecked():
             self.status_label.setText("Auto-run enabled: Starting translation...")
-            self.start_translation()
+            QTimer.singleShot(100, self._start_translation_auto)
         else:
             self.tabs.setCurrentIndex(1)  # Switch to transcript tab
+    
+    def _start_translation_auto(self):
+        """Helper method for auto-run translation (called from main thread)."""
+        if not self.auto_run_checkbox.isChecked():
+            return
+        self.start_translation()
     
     def update_transcript_table(self, segments):
         """Update transcript table with segments and speaker info."""
@@ -470,6 +481,11 @@ Audio Tracks: {len(meta.audio_tracks)}
     
     def on_translation_finished(self, segments):
         """Handle translation completion."""
+        # Clean up thread from main thread (prevents deadlock)
+        if self.current_worker:
+            self.current_worker.quit()
+            self.current_worker.wait()
+        
         self.set_processing_state(False, "Translation complete")
         self.translate_pause_btn.setEnabled(False)
         self.translate_stop_btn.setEnabled(False)
@@ -477,12 +493,18 @@ Audio Tracks: {len(meta.audio_tracks)}
         self.update_translation_table(segments)
         self.generate_speech_btn.setEnabled(True)
         
-        # Auto-run: proceed to TTS generation
+        # Auto-run: proceed to TTS generation using timer
         if self.auto_run_checkbox.isChecked():
             self.status_label.setText("Auto-run enabled: Starting TTS generation...")
-            self.start_tts()
+            QTimer.singleShot(100, self._start_tts_auto)
         else:
             self.tabs.setCurrentIndex(2)  # Switch to translation tab
+    
+    def _start_tts_auto(self):
+        """Helper method for auto-run TTS (called from main thread)."""
+        if not self.auto_run_checkbox.isChecked():
+            return
+        self.start_tts()
     
     def update_translation_table(self, segments):
         """Update translation table with segments and voice info."""
