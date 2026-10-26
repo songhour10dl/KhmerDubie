@@ -159,10 +159,6 @@ class TTSWorker(CancellableWorker):
             self.error.emit(str(e))
         except Exception as e:
             self.error.emit(str(e))
-        finally:
-            # Ensure thread cleanup
-            self.quit()
-            self.wait()
 
 
 class ExportWorker(CancellableWorker):
