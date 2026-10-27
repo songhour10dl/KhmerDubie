@@ -330,10 +330,12 @@ class FFmpegService:
                 for i, seg in enumerate(batch):
                     inputs.extend(['-i', str(seg['path'])])
                     delay_ms = int(seg['start'] * 1000)
+                    duration_sec = seg['duration']
                     
-                    # Just apply delay without trimming (trimming causes corruption)
+                    # Trim to exact duration, then apply delay
+                    # The atrim needs to happen BEFORE adelay to work properly
                     filter_parts.append(
-                        f"[{i+1}]adelay={delay_ms}|{delay_ms}[a{i}]"
+                        f"[{i+1}]atrim=0:{duration_sec}[trimmed{i}];[trimmed{i}]adelay={delay_ms}|{delay_ms}[a{i}]"
                     )
                 
                 # Mix with higher volume (normalize=0 prevents volume reduction)
