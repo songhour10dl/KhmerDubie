@@ -1,5 +1,6 @@
 """Alternative translation services for English to Khmer when OmniRoute is unstable."""
 import requests
+import time
 from typing import Optional
 from ..utils.logger import setup_logger
 
@@ -12,6 +13,8 @@ class GoogleTranslateService:
     
     def __init__(self):
         self.timeout = 30
+        self.max_retries = 2
+        self.retry_delay = 1  # seconds
     
     def test_connection(self) -> tuple[bool, str]:
         """Test connection to Google Translate."""
@@ -29,36 +32,61 @@ class GoogleTranslateService:
     
     def translate(self, text: str, source_lang: str = 'en', target_lang: str = 'km') -> str:
         """Translate using Google Translate (free, no API key needed)."""
-        try:
-            url = f"https://translate.googleapis.com/translate_a/element.js?cb=GoogleTranslateElementInit"
-            
-            # Using the free Google Translate endpoint
-            data = {
-                'client': 'gtx',
-                'sl': source_lang,
-                'tl': target_lang,
-                'dt': 't',
-                'q': text
-            }
-            
-            response = requests.get(
-                "https://translate.google.com/translate_a/single",
-                params=data,
-                timeout=self.timeout,
-                headers={'User-Agent': 'Mozilla/5.0'}
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                translation = result[0][0][0]
-                logger.info(f"Google Translate: '{text[:50]}...' -> '{translation[:50]}...'")
-                return translation
-            else:
-                raise Exception(f"Google Translate failed: HTTP {response.status_code}")
+        last_error = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                # Add delay between retries to avoid rate limiting
+                if attempt > 0:
+                    delay = self.retry_delay * (2 ** (attempt - 1))  # Exponential backoff
+                    logger.info(f"Google Translate retry {attempt}/{self.max_retries} after {delay}s delay")
+                    time.sleep(delay)
                 
-        except Exception as e:
-            logger.error(f"Google Translate error: {e}")
-            raise
+                # Using the free Google Translate endpoint
+                data = {
+                    'client': 'gtx',
+                    'sl': source_lang,
+                    'tl': target_lang,
+                    'dt': 't',
+                    'q': text
+                }
+                
+                response = requests.get(
+                    "https://translate.google.com/translate_a/single",
+                    params=data,
+                    timeout=self.timeout,
+                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                )
+                
+                # Handle rate limiting
+                if response.status_code == 429:
+                    last_error = f"Rate limited (HTTP 429) - too many requests"
+                    logger.warning(f"Google Translate rate limited: {last_error}")
+                    continue
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    translation = result[0][0][0]
+                    logger.info(f"Google Translate: '{text[:50]}...' -> '{translation[:50]}...'")
+                    return translation
+                else:
+                    last_error = f"Google Translate failed: HTTP {response.status_code}"
+                    logger.warning(last_error)
+                    continue
+                    
+            except requests.exceptions.Timeout:
+                last_error = "Request timeout"
+                logger.warning(f"Google Translate timeout on attempt {attempt + 1}")
+                continue
+            except Exception as e:
+                last_error = f"Error: {str(e)}"
+                logger.warning(f"Google Translate error on attempt {attempt + 1}: {e}")
+                continue
+        
+        # All retries exhausted
+        error_msg = f"Google Translate failed after {self.max_retries} attempts: {last_error}"
+        logger.error(error_msg)
+        raise Exception(error_msg)
 
 
 class LibreTranslateService:
@@ -158,12 +186,29 @@ class MyMemoryTranslateService:
 class AltTranslationService:
     """Fallback translation service that tries multiple providers."""
     
-    def __init__(self):
-        self.providers = [
-            GoogleTranslateService(),
-            MyMemoryTranslateService(),
-            LibreTranslateService(),
-        ]
+    def __init__(self, skip_google: bool = True):
+        """Initialize with option to skip Google Translate due to rate limiting.
+        
+        Args:
+            skip_google: If True, skip Google Translate and use more reliable services
+        """
+        self.skip_google = skip_google
+        
+        # Order matters - try more reliable services first
+        providers = []
+        
+        if not skip_google:
+            providers.append(GoogleTranslateService())
+        
+        # Most reliable services (no rate limiting)
+        providers.append(MyMemoryTranslateService())
+        providers.append(LibreTranslateService())
+        
+        # Add Google as fallback if not skipped
+        if skip_google:
+            providers.append(GoogleTranslateService())
+        
+        self.providers = providers
         self.current_provider = 0
     
     def translate(self, text: str) -> str:

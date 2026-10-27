@@ -166,7 +166,10 @@ class SettingsDialog(QDialog):
         # Save to .env file
         config.save_to_env()
         
-        QMessageBox.information(self, "Success", "Settings saved successfully")
+        # Reload config from .env to ensure all services pick up the new values
+        config.reload()
+        
+        QMessageBox.information(self, "Success", "Settings saved and reloaded successfully")
         self.accept()
     
     def test_omniroute(self):

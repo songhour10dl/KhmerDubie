@@ -10,11 +10,18 @@ class Config:
     def __init__(self):
         # Load .env file
         load_dotenv()
-        
+        self._load_config()
+    
+    def _load_config(self):
+        """Load configuration from environment variables."""
         # OmniRoute
         self.omniroute_base_url = os.getenv('OMNIROUTE_BASE_URL', 'http://localhost:8000')
         self.omniroute_api_key = os.getenv('OMNIROUTE_API_KEY', '')
         self.omniroute_model = os.getenv('OMNIROUTE_MODEL', 'gpt-4')
+        
+        # Translation Provider
+        self.translation_provider = os.getenv('TRANSLATION_PROVIDER', 'hybrid')
+        self.manual_dict_path = os.getenv('MANUAL_DICT_PATH', 'translations.json')
         
         # STT
         self.stt_provider = os.getenv('STT_PROVIDER', 'whisper')
@@ -48,12 +55,22 @@ class Config:
         self.audio_bitrate = os.getenv('AUDIO_BITRATE', '128k')
         self.audio_sample_rate = int(os.getenv('AUDIO_SAMPLE_RATE', '48000'))
     
+    def reload(self) -> None:
+        """Reload configuration from .env file."""
+        # Force reload of environment variables
+        load_dotenv(override=True)
+        self._load_config()
+    
     def save_to_env(self, env_path: str = '.env') -> None:
         """Save current configuration to .env file."""
         env_content = f"""# OmniRoute Configuration
 OMNIROUTE_BASE_URL={self.omniroute_base_url}
 OMNIROUTE_API_KEY={self.omniroute_api_key}
 OMNIROUTE_MODEL={self.omniroute_model}
+
+# Translation Provider
+TRANSLATION_PROVIDER={self.translation_provider}
+MANUAL_DICT_PATH={self.manual_dict_path}
 
 # Speech-to-Text Provider
 STT_PROVIDER={self.stt_provider}
