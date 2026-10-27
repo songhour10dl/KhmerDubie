@@ -127,7 +127,17 @@ class ProcessingPipeline:
                           progress_callback: Callable[[str, int], None] = None) -> List[DialogueSegment]:
         """Translate segments in parallel for faster processing."""
         try:
-            segments = segments or self.project.segments
+            # Get segments from parameter or project
+            if segments is None:
+                if self.project is None:
+                    raise RuntimeError("No project loaded. Cannot translate segments.")
+                if not hasattr(self.project, 'segments') or self.project.segments is None:
+                    raise RuntimeError("Project has no segments. Run transcription first.")
+                segments = self.project.segments
+            
+            if not segments or len(segments) == 0:
+                raise RuntimeError("No segments to translate. Run transcription first.")
+            
             total = len(segments)
             
             logger.info(f"Starting parallel translation of {total} segments")
@@ -139,15 +149,32 @@ class ProcessingPipeline:
             def translate_single(segment: DialogueSegment) -> DialogueSegment:
                 """Translate a single segment."""
                 try:
-                    # Build context from speaker and surrounding dialogue
-                    context = f"Speaker: {segment.speaker or 'Unknown'}"
+                    # Different translators have different signatures
+                    translator_type = type(self.translator).__name__
                     
-                    segment.khmer_text = self.translator.translate(
-                        segment.english_text,
-                        source_lang="English",
-                        target_lang="Khmer",
-                        context=context
-                    )
+                    if translator_type == 'OmniRouteService':
+                        # OmniRoute supports context parameter
+                        context = f"Speaker: {segment.speaker or 'Unknown'}"
+                        segment.khmer_text = self.translator.translate(
+                            segment.english_text,
+                            source_lang="English",
+                            target_lang="Khmer",
+                            context=context
+                        )
+                    elif translator_type in ['HybridTranslationService', 'AltTranslationService']:
+                        # Hybrid and Alternative only accept text
+                        segment.khmer_text = self.translator.translate(segment.english_text)
+                    elif translator_type == 'GoogleTranslateService':
+                        # Google accepts source/target lang
+                        segment.khmer_text = self.translator.translate(
+                            segment.english_text,
+                            source_lang='en',
+                            target_lang='km'
+                        )
+                    else:
+                        # Default: just pass text
+                        segment.khmer_text = self.translator.translate(segment.english_text)
+                    
                     return segment
                 except Exception as e:
                     logger.error(f"Translation failed for segment: {e}")
