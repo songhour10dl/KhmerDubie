@@ -162,6 +162,53 @@ class AltTranslationService:
         return False, "No translation providers available"
 
 
+class HybridTranslationService:
+    """Hybrid service that uses manual translations first, then falls back to alternatives."""
+    
+    def __init__(self, manual_dict_path: str = None):
+        self.manual = ManualTranslationService()
+        self.fallback = AltTranslationService()
+        
+        if manual_dict_path:
+            try:
+                self.manual.load_from_file(manual_dict_path)
+                logger.info(f"Loaded manual translations from {manual_dict_path}")
+            except Exception as e:
+                logger.warning(f"Could not load manual translations from {manual_dict_path}: {e}")
+    
+    def translate(self, text: str, source_lang: str = 'en', target_lang: str = 'km') -> str:
+        """Translate using manual dictionary first, fall back to API if not found."""
+        # Try manual translation first (instant, no tokens, no API calls)
+        if self.manual.has_translation(text):
+            translation = self.manual.translate(text)
+            logger.info(f"Manual translation found: '{text[:50]}...' -> '{translation[:50]}...'")
+            return translation
+        
+        # Fall back to alternative services if manual not found
+        logger.info(f"Manual translation not found for '{text[:50]}...', using API fallback")
+        return self.fallback.translate(text)
+    
+    def add_manual_translation(self, english_text: str, khmer_text: str):
+        """Add a manual translation."""
+        self.manual.add_translation(english_text, khmer_text)
+    
+    def save_manual_translations(self, filepath: str):
+        """Save manual translations to file."""
+        self.manual.save_to_file(filepath)
+    
+    def load_manual_translations(self, filepath: str):
+        """Load manual translations from file."""
+        self.manual.load_from_file(filepath)
+    
+    def get_manual_translation_count(self) -> int:
+        """Get number of manual translations loaded."""
+        return len(self.manual.manual_translations)
+    
+    def test_connection(self) -> tuple[bool, str]:
+        """Test if fallback translation service is available."""
+        return self.fallback.test_connection()
+
+
 class ManualTranslationService:
     """Manual translation mode - allows user to manually enter Khmer text."""
     

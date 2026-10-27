@@ -9,6 +9,11 @@ from ..utils.config import config
 from .ffmpeg_service import FFmpegService
 from .stt_service import STTService
 from .omniroute_service import OmniRouteService
+from .alternative_translation import (
+    GoogleTranslateService,
+    HybridTranslationService,
+    AltTranslationService
+)
 from .tts_service import TTSService
 from .subtitle_service import SubtitleService
 
@@ -19,13 +24,27 @@ logger = setup_logger(__name__)
 class ProcessingPipeline:
     """Orchestrates the complete dubbing pipeline with optimizations."""
     
-    def __init__(self):
+    def __init__(self, translation_provider: str = "hybrid", manual_dict_path: str = None):
         self.ffmpeg = FFmpegService()
         self.stt = None  # Lazy load
-        self.translator = OmniRouteService()
         self.tts = TTSService()
         self.subtitle = SubtitleService()
         self.project: Optional[Project] = None
+        
+        # Set translation provider
+        self.translation_provider = translation_provider.lower()
+        if self.translation_provider == "hybrid":
+            self.translator = HybridTranslationService(manual_dict_path=manual_dict_path)
+            logger.info("Using Hybrid translation (manual + API fallback)")
+        elif self.translation_provider == "alternative":
+            self.translator = AltTranslationService()
+            logger.info("Using Alternative translation services (Google/MyMemory/LibreTranslate)")
+        elif self.translation_provider == "google":
+            self.translator = GoogleTranslateService()
+            logger.info("Using Google Translate for translations")
+        else:
+            self.translator = OmniRouteService()
+            logger.info("Using OmniRoute for translations")
         
         # Voice assignment for speakers
         self.speaker_voices = {

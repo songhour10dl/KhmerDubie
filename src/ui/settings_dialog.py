@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from ..utils.config import config
-from ..services import OmniRouteService, TTSService
+from ..services import OmniRouteService, TTSService, HybridTranslationService
 
 
 class SettingsDialog(QDialog):
@@ -22,6 +22,25 @@ class SettingsDialog(QDialog):
     def init_ui(self):
         """Initialize UI components."""
         layout = QVBoxLayout(self)
+        
+        # Translation Provider settings
+        translation_group = QGroupBox("Translation Provider")
+        translation_layout = QFormLayout(translation_group)
+        
+        self.translation_provider = QComboBox()
+        self.translation_provider.addItems(["hybrid", "alternative", "omniroute", "google"])
+        self.translation_provider.currentTextChanged.connect(self.on_translation_provider_changed)
+        translation_layout.addRow("Provider:", self.translation_provider)
+        
+        self.manual_dict_path = QLineEdit()
+        self.manual_dict_path.setPlaceholderText("Path to translations.json (for hybrid mode)")
+        translation_layout.addRow("Manual Dictionary:", self.manual_dict_path)
+        
+        test_translation_btn = QPushButton("Test Connection")
+        test_translation_btn.clicked.connect(self.test_translation)
+        translation_layout.addRow("", test_translation_btn)
+        
+        layout.addWidget(translation_group)
         
         # OmniRoute settings
         omniroute_group = QGroupBox("OmniRoute Translation")
@@ -102,6 +121,14 @@ class SettingsDialog(QDialog):
     
     def load_settings(self):
         """Load current settings into form."""
+        # Load translation provider settings
+        self.translation_provider.setCurrentText(
+            getattr(config, 'translation_provider', 'hybrid')
+        )
+        self.manual_dict_path.setText(
+            getattr(config, 'manual_dict_path', 'translations.json')
+        )
+        
         self.omniroute_url.setText(config.omniroute_base_url)
         self.omniroute_key.setText(config.omniroute_api_key)
         self.omniroute_model.setText(config.omniroute_model)
@@ -116,9 +143,14 @@ class SettingsDialog(QDialog):
         
         # Update UI based on provider
         self.on_tts_provider_changed(config.tts_provider)
+        self.on_translation_provider_changed(self.translation_provider.currentText())
     
     def save_settings(self):
         """Save settings to config."""
+        # Save translation provider settings
+        config.translation_provider = self.translation_provider.currentText()
+        config.manual_dict_path = self.manual_dict_path.text()
+        
         config.omniroute_base_url = self.omniroute_url.text()
         config.omniroute_api_key = self.omniroute_key.text()
         config.omniroute_model = self.omniroute_model.text()
@@ -155,6 +187,47 @@ class SettingsDialog(QDialog):
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Test failed:\n\n{str(e)}")
+    
+    def test_translation(self):
+        """Test translation provider connection."""
+        try:
+            provider = self.translation_provider.currentText()
+            
+            if provider == "hybrid":
+                service = HybridTranslationService(
+                    manual_dict_path=self.manual_dict_path.text()
+                )
+                success, message = service.test_connection()
+                manual_count = service.get_manual_translation_count()
+                message = f"{message}\nManual translations loaded: {manual_count}"
+            else:
+                from ..services import AltTranslationService, GoogleTranslateService
+                if provider == "alternative":
+                    service = AltTranslationService()
+                elif provider == "google":
+                    service = GoogleTranslateService()
+                else:  # omniroute
+                    service = OmniRouteService(
+                        base_url=self.omniroute_url.text(),
+                        api_key=self.omniroute_key.text(),
+                        model=self.omniroute_model.text()
+                    )
+                
+                success, message = service.test_connection()
+            
+            if success:
+                QMessageBox.information(self, "Success", f"{provider.capitalize()} connection successful!\n\n{message}")
+            else:
+                QMessageBox.warning(self, "Connection Failed", f"{provider.capitalize()} connection failed:\n\n{message}")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Test failed:\n\n{str(e)}")
+    
+    def on_translation_provider_changed(self, provider: str):
+        """Update UI when translation provider changes."""
+        # Only show manual dict path for hybrid mode
+        self.manual_dict_path.setEnabled(provider == "hybrid")
+
     
     def on_tts_provider_changed(self, provider: str):
         """Update UI when TTS provider changes."""

@@ -21,7 +21,8 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.pipeline = ProcessingPipeline()
+        self.translation_provider = "omniroute"  # Default provider
+        self.pipeline = ProcessingPipeline(self.translation_provider)
         self.project: Optional[Project] = None
         self.current_worker = None
         

@@ -2,6 +2,14 @@ from .ffmpeg_service import FFmpegService
 from .omniroute_service import OmniRouteService
 from .tts_service import TTSService
 from .subtitle_service import SubtitleService
+from .alternative_translation import (
+    AltTranslationService,
+    HybridTranslationService,
+    ManualTranslationService,
+    GoogleTranslateService,
+    MyMemoryTranslateService,
+    LibreTranslateService
+)
 
 # Import STT and pipeline separately to handle whisper dependency
 try:
@@ -20,7 +28,13 @@ if _stt_available:
         'OmniRouteService',
         'TTSService',
         'SubtitleService',
-        'ProcessingPipeline'
+        'ProcessingPipeline',
+        'AltTranslationService',
+        'HybridTranslationService',
+        'ManualTranslationService',
+        'GoogleTranslateService',
+        'MyMemoryTranslateService',
+        'LibreTranslateService'
     ]
 else:
     __all__ = [
@@ -28,5 +42,11 @@ else:
         'OmniRouteService',
         'TTSService',
         'SubtitleService',
-        'ProcessingPipeline'
+        'ProcessingPipeline',
+        'AltTranslationService',
+        'HybridTranslationService',
+        'ManualTranslationService',
+        'GoogleTranslateService',
+        'MyMemoryTranslateService',
+        'LibreTranslateService'
     ]
