@@ -331,9 +331,9 @@ class FFmpegService:
                     inputs.extend(['-i', str(seg['path'])])
                     delay_ms = int(seg['start'] * 1000)
                     
-                    # Trim segment to its duration and apply delay
+                    # Just apply delay without trimming (trimming causes corruption)
                     filter_parts.append(
-                        f"[{i+1}]atrim=0:{seg['duration']},asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms}[a{i}]"
+                        f"[{i+1}]adelay={delay_ms}|{delay_ms}[a{i}]"
                     )
                 
                 # Mix with higher volume (normalize=0 prevents volume reduction)
@@ -344,8 +344,8 @@ class FFmpegService:
                 
                 filter_complex = ';'.join(filter_parts)
                 
-                # Use compressed format (MP3) to reduce disk I/O
-                batch_output = temp_dir / f"b{batch_idx}.mp3"
+                # Use WAV format for reliability (no compression issues)
+                batch_output = temp_dir / f"b{batch_idx}.wav"
                 
                 cmd = [self.ffmpeg_path]
                 cmd.extend(inputs)
@@ -353,7 +353,6 @@ class FFmpegService:
                     '-filter_complex', filter_complex,
                     '-ar', '48000',
                     '-ac', '2',
-                    '-b:a', '192k',
                     '-t', str(total_duration),
                     '-y',
                     str(batch_output)
