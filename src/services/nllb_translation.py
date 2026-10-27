@@ -64,7 +64,14 @@ class NLLBTranslationService:
     def test_connection(self) -> tuple[bool, str]:
         """Test connection to NLLB service."""
         try:
-            result = self.translate("Hello", 'en', 'km')
+            # Test the actual mode being used (local or API)
+            if self.use_local:
+                # Test local model
+                result = self._translate_local("Hello", 'en', 'km')
+            else:
+                # Test API
+                result = self._translate_api("Hello", 'en', 'km')
+            
             if result:
                 mode = "local model" if self.use_local else "Hugging Face API"
                 logger.info(f"NLLB-200 connection successful ({mode})")
@@ -72,9 +79,10 @@ class NLLBTranslationService:
             else:
                 return False, "Translation returned empty result"
         except Exception as e:
+            mode = "local model" if self.use_local else "Hugging Face API"
             msg = f"Connection failed: {str(e)}"
-            logger.error(f"NLLB-200 test failed: {msg}")
-            return False, msg
+            logger.error(f"NLLB-200 test failed ({mode}): {msg}")
+            return False, f"{mode} failed: {msg}"
     
     def translate(self, text: str, source_lang: str = 'en', target_lang: str = 'km') -> str:
         """Translate using NLLB-200.
