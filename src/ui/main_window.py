@@ -21,8 +21,18 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.translation_provider = "omniroute"  # Default provider
-        self.pipeline = ProcessingPipeline(self.translation_provider)
+        # Read translation provider from config
+        self.translation_provider = getattr(config, 'translation_provider', 'hybrid')
+        
+        # Get manual dictionary path for hybrid mode
+        manual_dict_path = getattr(config, 'manual_dict_path', 'translations.json')
+        
+        # Initialize pipeline with config settings
+        self.pipeline = ProcessingPipeline(
+            translation_provider=self.translation_provider,
+            manual_dict_path=manual_dict_path
+        )
+        
         self.project: Optional[Project] = None
         self.current_worker = None
         
@@ -706,5 +716,23 @@ Audio Tracks: {len(meta.audio_tracks)}
         """Show settings dialog."""
         dialog = SettingsDialog(self)
         if dialog.exec():
-            # Settings saved
-            self.status_label.setText("Settings saved")
+            # Settings saved - reload pipeline with new config
+            self.reload_pipeline()
+            self.status_label.setText("Settings saved and applied")
+    
+    def reload_pipeline(self):
+        """Reload pipeline with current config settings."""
+        # Read updated config
+        self.translation_provider = getattr(config, 'translation_provider', 'hybrid')
+        manual_dict_path = getattr(config, 'manual_dict_path', 'translations.json')
+        
+        # Recreate pipeline with new settings
+        self.pipeline = ProcessingPipeline(
+            translation_provider=self.translation_provider,
+            manual_dict_path=manual_dict_path
+        )
+        
+        # Log the change
+        from ..utils.logger import setup_logger
+        logger = setup_logger(__name__)
+        logger.info(f"Pipeline reloaded with provider: {self.translation_provider}")
