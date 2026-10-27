@@ -28,7 +28,7 @@ class SettingsDialog(QDialog):
         translation_layout = QFormLayout(translation_group)
         
         self.translation_provider = QComboBox()
-        self.translation_provider.addItems(["hybrid", "alternative", "omniroute", "google"])
+        self.translation_provider.addItems(["hybrid", "alternative", "omniroute"])
         self.translation_provider.currentTextChanged.connect(self.on_translation_provider_changed)
         translation_layout.addRow("Provider:", self.translation_provider)
         
@@ -203,19 +203,16 @@ class SettingsDialog(QDialog):
                 success, message = service.test_connection()
                 manual_count = service.get_manual_translation_count()
                 message = f"{message}\nManual translations loaded: {manual_count}"
-            else:
-                from ..services import AltTranslationService, GoogleTranslateService
-                if provider == "alternative":
-                    service = AltTranslationService()
-                elif provider == "google":
-                    service = GoogleTranslateService()
-                else:  # omniroute
-                    service = OmniRouteService(
-                        base_url=self.omniroute_url.text(),
-                        api_key=self.omniroute_key.text(),
-                        model=self.omniroute_model.text()
-                    )
-                
+            elif provider == "alternative":
+                from ..services import AltTranslationService
+                service = AltTranslationService(skip_google=True)
+                success, message = service.test_connection()
+            else:  # omniroute
+                service = OmniRouteService(
+                    base_url=self.omniroute_url.text(),
+                    api_key=self.omniroute_key.text(),
+                    model=self.omniroute_model.text()
+                )
                 success, message = service.test_connection()
             
             if success:
