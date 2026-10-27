@@ -13,6 +13,20 @@ class GoogleTranslateService:
     def __init__(self):
         self.timeout = 30
     
+    def test_connection(self) -> tuple[bool, str]:
+        """Test connection to Google Translate."""
+        try:
+            result = self.translate("Hello", 'en', 'km')
+            if result:
+                logger.info("Google Translate connection successful")
+                return True, "Connection successful"
+            else:
+                return False, "Translation returned empty result"
+        except Exception as e:
+            msg = f"Connection failed: {str(e)}"
+            logger.error(f"Google Translate test failed: {msg}")
+            return False, msg
+    
     def translate(self, text: str, source_lang: str = 'en', target_lang: str = 'km') -> str:
         """Translate using Google Translate (free, no API key needed)."""
         try:
@@ -54,6 +68,20 @@ class LibreTranslateService:
         self.api_url = api_url
         self.timeout = 30
     
+    def test_connection(self) -> tuple[bool, str]:
+        """Test connection to LibreTranslate."""
+        try:
+            result = self.translate("Hello", 'en', 'km')
+            if result:
+                logger.info("LibreTranslate connection successful")
+                return True, "Connection successful"
+            else:
+                return False, "Translation returned empty result"
+        except Exception as e:
+            msg = f"Connection failed: {str(e)}"
+            logger.error(f"LibreTranslate test failed: {msg}")
+            return False, msg
+    
     def translate(self, text: str, source_lang: str = 'en', target_lang: str = 'km') -> str:
         """Translate using LibreTranslate."""
         try:
@@ -85,6 +113,20 @@ class MyMemoryTranslateService:
     
     def __init__(self):
         self.timeout = 30
+    
+    def test_connection(self) -> tuple[bool, str]:
+        """Test connection to MyMemory."""
+        try:
+            result = self.translate("Hello", 'en', 'km')
+            if result:
+                logger.info("MyMemory connection successful")
+                return True, "Connection successful"
+            else:
+                return False, "Translation returned empty result"
+        except Exception as e:
+            msg = f"Connection failed: {str(e)}"
+            logger.error(f"MyMemory test failed: {msg}")
+            return False, msg
     
     def translate(self, text: str, source_lang: str = 'en', target_lang: str = 'km') -> str:
         """Translate using MyMemory API."""
@@ -214,6 +256,10 @@ class ManualTranslationService:
     
     def __init__(self):
         self.manual_translations = {}
+    
+    def test_connection(self) -> tuple[bool, str]:
+        """Test if manual translation service is available."""
+        return True, f"Manual translation service ready ({len(self.manual_translations)} translations loaded)"
     
     def add_translation(self, english_text: str, khmer_text: str):
         """Add a manual translation."""
