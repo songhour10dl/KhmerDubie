@@ -289,18 +289,26 @@ class FFmpegService:
             # Sort segments by start time to handle overlaps
             valid_segments.sort(key=lambda s: s.start_time)
             
-            # Check for overlaps and trim segments if needed
+            # Check for overlaps and add gaps instead of trimming
             processed_segments = []
             for i, segment in enumerate(valid_segments):
                 seg_start = segment.start_time
                 seg_end = segment.end_time
                 
-                # Check if next segment overlaps
+                # Add a small gap between segments (like a comma pause)
+                # Check if next segment is too close
                 if i < len(valid_segments) - 1:
                     next_start = valid_segments[i + 1].start_time
+                    # If next segment starts before this one ends, add a gap
                     if seg_end > next_start:
-                        # Trim this segment to not overlap with next
-                        seg_end = next_start - 0.1  # Leave 100ms gap
+                        # Push the next segment forward, but keep this one full
+                        seg_end = next_start - 0.3  # 300ms gap (comma pause)
+                    else:
+                        # Add 100ms gap for natural separation
+                        seg_end = min(seg_end + 0.1, next_start - 0.2)
+                else:
+                    # Last segment, add small buffer at end
+                    seg_end = min(seg_end + 0.1, total_duration)
                 
                 processed_segments.append({
                     'path': segment.audio_path,
@@ -330,12 +338,11 @@ class FFmpegService:
                 for i, seg in enumerate(batch):
                     inputs.extend(['-i', str(seg['path'])])
                     delay_ms = int(seg['start'] * 1000)
-                    duration_sec = seg['duration']
                     
-                    # Trim to exact duration, then apply delay
-                    # The atrim needs to happen BEFORE adelay to work properly
+                    # Just delay the audio to correct position
+                    # Don't trim - let the audio play naturally with its pauses intact
                     filter_parts.append(
-                        f"[{i+1}]atrim=0:{duration_sec}[trimmed{i}];[trimmed{i}]adelay={delay_ms}|{delay_ms}[a{i}]"
+                        f"[{i+1}]adelay={delay_ms}|{delay_ms}[a{i}]"
                     )
                 
                 # Mix with higher volume (normalize=0 prevents volume reduction)
