@@ -99,7 +99,8 @@ class NLLBTranslationService:
             src_code = self.lang_codes.get(source_lang, 'eng_Latn')
             tgt_code = self.lang_codes.get(target_lang, 'khm_Khmr')
             
-            # Tokenize
+            # Tokenize with source language
+            self.tokenizer.src_lang = src_code
             inputs = self.tokenizer(
                 text,
                 return_tensors="pt",
@@ -108,11 +109,10 @@ class NLLBTranslationService:
                 max_length=512
             )
             
-            # Set target language
-            self.tokenizer.src_lang = src_code
-            forced_bos_token_id = self.tokenizer.lang_code_to_id[tgt_code]
+            # Generate translation with target language
+            # Use convert_tokens_to_ids instead of lang_code_to_id
+            forced_bos_token_id = self.tokenizer.convert_tokens_to_ids(tgt_code)
             
-            # Generate translation
             generated_tokens = self.model.generate(
                 **inputs,
                 forced_bos_token_id=forced_bos_token_id,
