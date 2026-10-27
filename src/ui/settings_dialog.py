@@ -28,7 +28,7 @@ class SettingsDialog(QDialog):
         translation_layout = QFormLayout(translation_group)
         
         self.translation_provider = QComboBox()
-        self.translation_provider.addItems(["hybrid", "alternative", "omniroute"])
+        self.translation_provider.addItems(["hybrid", "alternative"])
         self.translation_provider.currentTextChanged.connect(self.on_translation_provider_changed)
         translation_layout.addRow("Provider:", self.translation_provider)
         
@@ -42,25 +42,26 @@ class SettingsDialog(QDialog):
         
         layout.addWidget(translation_group)
         
-        # OmniRoute settings
-        omniroute_group = QGroupBox("OmniRoute Translation")
-        omniroute_layout = QFormLayout(omniroute_group)
-        
-        self.omniroute_url = QLineEdit()
-        omniroute_layout.addRow("Base URL:", self.omniroute_url)
-        
-        self.omniroute_key = QLineEdit()
-        self.omniroute_key.setEchoMode(QLineEdit.Password)
-        omniroute_layout.addRow("API Key:", self.omniroute_key)
-        
-        self.omniroute_model = QLineEdit()
-        omniroute_layout.addRow("Model:", self.omniroute_model)
-        
-        test_omniroute_btn = QPushButton("Test Connection")
-        test_omniroute_btn.clicked.connect(self.test_omniroute)
-        omniroute_layout.addRow("", test_omniroute_btn)
-        
-        layout.addWidget(omniroute_group)
+        # OmniRoute settings - HIDDEN (not needed for free providers)
+        # Uncomment if you need OmniRoute in the future
+        # omniroute_group = QGroupBox("OmniRoute Translation (Optional - Not Free)")
+        # omniroute_layout = QFormLayout(omniroute_group)
+        # 
+        # self.omniroute_url = QLineEdit()
+        # omniroute_layout.addRow("Base URL:", self.omniroute_url)
+        # 
+        # self.omniroute_key = QLineEdit()
+        # self.omniroute_key.setEchoMode(QLineEdit.Password)
+        # omniroute_layout.addRow("API Key:", self.omniroute_key)
+        # 
+        # self.omniroute_model = QLineEdit()
+        # omniroute_layout.addRow("Model:", self.omniroute_model)
+        # 
+        # test_omniroute_btn = QPushButton("Test Connection")
+        # test_omniroute_btn.clicked.connect(self.test_omniroute)
+        # omniroute_layout.addRow("", test_omniroute_btn)
+        # 
+        # layout.addWidget(omniroute_group)
         
         # TTS settings
         tts_group = QGroupBox("Text-to-Speech (Khmer)")
@@ -207,13 +208,10 @@ class SettingsDialog(QDialog):
                 from ..services import AltTranslationService
                 service = AltTranslationService(skip_google=True)
                 success, message = service.test_connection()
-            else:  # omniroute
-                service = OmniRouteService(
-                    base_url=self.omniroute_url.text(),
-                    api_key=self.omniroute_key.text(),
-                    model=self.omniroute_model.text()
-                )
-                success, message = service.test_connection()
+            else:
+                # Fallback - should not reach here
+                QMessageBox.warning(self, "Unknown Provider", f"Unknown provider: {provider}")
+                return
             
             if success:
                 QMessageBox.information(self, "Success", f"{provider.capitalize()} connection successful!\n\n{message}")
