@@ -77,18 +77,29 @@ class TranscriptionWorker(CancellableWorker):
                     raise InterruptedError("Transcription stopped by user")
                 self.progress.emit(msg, pct)
             
+            # Log start
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("TranscriptionWorker starting...")
+            
             segments = self.pipeline.extract_and_transcribe(
                 progress_callback=progress_callback
             )
+            
+            logger.info(f"TranscriptionWorker completed: {len(segments)} segments")
             
             if self._is_stopped:
                 self.error.emit("Transcription stopped by user")
             else:
                 self.finished.emit(segments)
         except InterruptedError as e:
+            logger.error(f"Transcription interrupted: {e}")
             self.error.emit(str(e))
         except Exception as e:
-            self.error.emit(str(e))
+            logger.error(f"Transcription failed: {e}", exc_info=True)
+            self.error.emit(f"Transcription error: {str(e)}")
+        finally:
+            logger.info("TranscriptionWorker thread exiting")
 
 
 class TranslationWorker(CancellableWorker):
