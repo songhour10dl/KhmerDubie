@@ -13,6 +13,7 @@ from ..services import ProcessingPipeline
 from ..models import Project, DialogueSegment
 from ..workers import TranscriptionWorker, TranslationWorker, TTSWorker, ExportWorker
 from ..utils.config import config
+from ..utils.logger import setup_logger
 from .settings_dialog import SettingsDialog
 
 
