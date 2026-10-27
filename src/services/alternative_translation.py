@@ -194,21 +194,16 @@ class AltTranslationService:
         """
         self.skip_google = skip_google
         
-        # Order matters - try more reliable services first
-        providers = []
+        # Most reliable services (no rate limiting) - use these primarily
+        self.providers = [
+            MyMemoryTranslateService(),
+            LibreTranslateService(),
+        ]
         
+        # Google Translate as optional fallback (very rate-limited)
         if not skip_google:
-            providers.append(GoogleTranslateService())
+            self.providers.append(GoogleTranslateService())
         
-        # Most reliable services (no rate limiting)
-        providers.append(MyMemoryTranslateService())
-        providers.append(LibreTranslateService())
-        
-        # Add Google as fallback if not skipped
-        if skip_google:
-            providers.append(GoogleTranslateService())
-        
-        self.providers = providers
         self.current_provider = 0
     
     def translate(self, text: str) -> str:
