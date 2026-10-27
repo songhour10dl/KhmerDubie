@@ -130,9 +130,7 @@ class SettingsDialog(QDialog):
             getattr(config, 'manual_dict_path', 'translations.json')
         )
         
-        self.omniroute_url.setText(config.omniroute_base_url)
-        self.omniroute_key.setText(config.omniroute_api_key)
-        self.omniroute_model.setText(config.omniroute_model)
+        # OmniRoute settings removed from UI - skip loading them
         
         self.tts_provider.setCurrentText(config.tts_provider)
         self.tts_url.setText(config.tts_base_url)
@@ -152,9 +150,8 @@ class SettingsDialog(QDialog):
         config.translation_provider = self.translation_provider.currentText()
         config.manual_dict_path = self.manual_dict_path.text()
         
-        config.omniroute_base_url = self.omniroute_url.text()
-        config.omniroute_api_key = self.omniroute_key.text()
-        config.omniroute_model = self.omniroute_model.text()
+        # OmniRoute settings removed from UI - keep existing config values
+        # (not modifying omniroute_url, omniroute_key, omniroute_model)
         
         config.tts_provider = self.tts_provider.currentText()
         config.tts_base_url = self.tts_url.text()
@@ -172,25 +169,6 @@ class SettingsDialog(QDialog):
         
         QMessageBox.information(self, "Success", "Settings saved and reloaded successfully")
         self.accept()
-    
-    def test_omniroute(self):
-        """Test OmniRoute connection."""
-        try:
-            service = OmniRouteService(
-                base_url=self.omniroute_url.text(),
-                api_key=self.omniroute_key.text(),
-                model=self.omniroute_model.text()
-            )
-            
-            success, message = service.test_connection()
-            
-            if success:
-                QMessageBox.information(self, "Success", f"OmniRoute connection successful!\n\n{message}")
-            else:
-                QMessageBox.warning(self, "Connection Failed", f"OmniRoute connection failed:\n\n{message}")
-                
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Test failed:\n\n{str(e)}")
     
     def test_translation(self):
         """Test translation provider connection."""
