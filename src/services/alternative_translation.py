@@ -3,6 +3,7 @@ import requests
 import time
 from typing import Optional
 from ..utils.logger import setup_logger
+from .nllb_translation import NLLBTranslationService
 
 
 logger = setup_logger(__name__)
@@ -247,9 +248,9 @@ class AltTranslationService:
 class HybridTranslationService:
     """Hybrid service that uses manual translations first, then falls back to alternatives."""
     
-    def __init__(self, manual_dict_path: str = None):
+    def __init__(self, manual_dict_path: str = None, use_local_nllb: bool = True):
         self.manual = ManualTranslationService()
-        self.fallback = AltTranslationService()
+        self.fallback = NLLBTranslationService(use_local=use_local_nllb) if use_local_nllb else AltTranslationService()
         
         if manual_dict_path:
             try:
