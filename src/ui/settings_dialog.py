@@ -28,7 +28,7 @@ class SettingsDialog(QDialog):
         translation_layout = QFormLayout(translation_group)
         
         self.translation_provider = QComboBox()
-        self.translation_provider.addItems(["hybrid", "alternative"])
+        self.translation_provider.addItems(["hybrid", "nllb-hybrid", "alternative", "nllb"])
         self.translation_provider.currentTextChanged.connect(self.on_translation_provider_changed)
         translation_layout.addRow("Provider:", self.translation_provider)
         
@@ -204,9 +204,22 @@ class SettingsDialog(QDialog):
                 success, message = service.test_connection()
                 manual_count = service.get_manual_translation_count()
                 message = f"{message}\nManual translations loaded: {manual_count}"
+            elif provider == "nllb-hybrid":
+                from ..services import NLLBHybridService
+                service = NLLBHybridService(
+                    manual_dict_path=self.manual_dict_path.text(),
+                    use_local_nllb=False
+                )
+                success, message = service.test_connection()
+                manual_count = service.get_manual_translation_count()
+                message = f"{message}\nManual translations loaded: {manual_count}"
             elif provider == "alternative":
                 from ..services import AltTranslationService
                 service = AltTranslationService(skip_google=True)
+                success, message = service.test_connection()
+            elif provider == "nllb":
+                from ..services import NLLBTranslationService
+                service = NLLBTranslationService(use_local=False)
                 success, message = service.test_connection()
             else:
                 # Fallback - should not reach here

@@ -10,6 +10,10 @@ from .alternative_translation import (
     MyMemoryTranslateService,
     LibreTranslateService
 )
+from .nllb_translation import (
+    NLLBTranslationService,
+    NLLBHybridService
+)
 
 # Import STT and pipeline separately to handle whisper dependency
 try:
@@ -34,7 +38,9 @@ if _stt_available:
         'ManualTranslationService',
         'GoogleTranslateService',
         'MyMemoryTranslateService',
-        'LibreTranslateService'
+        'LibreTranslateService',
+        'NLLBTranslationService',
+        'NLLBHybridService'
     ]
 else:
     __all__ = [
@@ -48,5 +54,7 @@ else:
         'ManualTranslationService',
         'GoogleTranslateService',
         'MyMemoryTranslateService',
-        'LibreTranslateService'
+        'LibreTranslateService',
+        'NLLBTranslationService',
+        'NLLBHybridService'
     ]

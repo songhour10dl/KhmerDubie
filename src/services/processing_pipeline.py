@@ -14,6 +14,10 @@ from .alternative_translation import (
     HybridTranslationService,
     AltTranslationService
 )
+from .nllb_translation import (
+    NLLBTranslationService,
+    NLLBHybridService
+)
 from .tts_service import TTSService
 from .subtitle_service import SubtitleService
 
@@ -37,8 +41,17 @@ class ProcessingPipeline:
             self.translator = HybridTranslationService(manual_dict_path=manual_dict_path)
             logger.info("Using Hybrid translation (manual + API fallback)")
         elif self.translation_provider == "alternative":
-            self.translator = AltTranslationService()
-            logger.info("Using Alternative translation services (Google/MyMemory/LibreTranslate)")
+            self.translator = AltTranslationService(skip_google=True)
+            logger.info("Using Alternative translation services (MyMemory/LibreTranslate)")
+        elif self.translation_provider == "nllb":
+            self.translator = NLLBTranslationService(use_local=False)
+            logger.info("Using NLLB-200 translation (Hugging Face API)")
+        elif self.translation_provider == "nllb-hybrid":
+            self.translator = NLLBHybridService(manual_dict_path=manual_dict_path, use_local_nllb=False)
+            logger.info("Using NLLB-200 Hybrid (manual + NLLB API)")
+        elif self.translation_provider == "nllb-local":
+            self.translator = NLLBTranslationService(use_local=True)
+            logger.info("Using NLLB-200 Local (on-device model)")
         elif self.translation_provider == "google":
             self.translator = GoogleTranslateService()
             logger.info("Using Google Translate for translations")
@@ -161,11 +174,11 @@ class ProcessingPipeline:
                             target_lang="Khmer",
                             context=context
                         )
-                    elif translator_type in ['HybridTranslationService', 'AltTranslationService']:
-                        # Hybrid and Alternative only accept text
+                    elif translator_type in ['HybridTranslationService', 'AltTranslationService', 'NLLBHybridService']:
+                        # Hybrid, Alternative, and NLLB Hybrid only accept text
                         segment.khmer_text = self.translator.translate(segment.english_text)
-                    elif translator_type == 'GoogleTranslateService':
-                        # Google accepts source/target lang
+                    elif translator_type in ['GoogleTranslateService', 'NLLBTranslationService']:
+                        # Google and NLLB accept source/target lang
                         segment.khmer_text = self.translator.translate(
                             segment.english_text,
                             source_lang='en',
