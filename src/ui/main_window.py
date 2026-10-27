@@ -21,11 +21,18 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
+        # Force reload config to ensure latest settings from .env
+        config.reload()
+        
         # Read translation provider from config
         self.translation_provider = getattr(config, 'translation_provider', 'hybrid')
         
         # Get manual dictionary path for hybrid mode
         manual_dict_path = getattr(config, 'manual_dict_path', 'translations.json')
+        
+        # Log for debugging
+        logger = setup_logger(__name__)
+        logger.info(f"MainWindow initialized with translation_provider={self.translation_provider}, manual_dict={manual_dict_path}")
         
         # Initialize pipeline with config settings
         self.pipeline = ProcessingPipeline(
