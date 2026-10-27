@@ -271,7 +271,10 @@ class FFmpegService:
                 concat_file.unlink()
     
     def compose_audio_timeline(self, segments: List, output_path: str, total_duration: float) -> str:
-        """Compose audio from segments at their exact timestamps with speed adjustment.
+        """Compose audio from segments at their exact timestamps with natural pauses.
+        
+        This function measures actual audio durations and schedules segments sequentially
+        to prevent overlap while preserving natural speech pauses.
         
         Args:
             segments: List of DialogueSegment objects with start_time, end_time, and audio_path
@@ -286,133 +289,103 @@ class FFmpegService:
             
             logger.info(f"Composing audio timeline from {len(valid_segments)} segments")
             
-            # Sort segments by start time to handle overlaps
+            # Sort segments by start time
             valid_segments.sort(key=lambda s: s.start_time)
             
-            # Check for overlaps and add gaps instead of trimming
-            processed_segments = []
-            for i, segment in enumerate(valid_segments):
-                seg_start = segment.start_time
-                seg_end = segment.end_time
-                
-                # Add a small gap between segments (like a comma pause)
-                # Check if next segment is too close
-                if i < len(valid_segments) - 1:
-                    next_start = valid_segments[i + 1].start_time
-                    # If next segment starts before this one ends, add a gap
-                    if seg_end > next_start:
-                        # Push the next segment forward, but keep this one full
-                        seg_end = next_start - 0.3  # 300ms gap (comma pause)
-                    else:
-                        # Add 100ms gap for natural separation
-                        seg_end = min(seg_end + 0.1, next_start - 0.2)
+            # Measure actual audio durations using FFprobe
+            for segment in valid_segments:
+                actual_duration = self._get_audio_duration(segment.audio_path)
+                if actual_duration > 0:
+                    segment.actual_audio_duration = actual_duration
+                    logger.info(f"Audio duration for segment: {actual_duration:.3f}s (original: {segment.duration:.3f}s)")
                 else:
-                    # Last segment, add small buffer at end
-                    seg_end = min(seg_end + 0.1, total_duration)
+                    segment.actual_audio_duration = segment.duration
+            
+            # Calculate natural pauses between segments
+            PAUSE_AFTER_SENTENCE = 0.15  # 150ms natural pause
+            PAUSE_AFTER_PARAGRAPH = 0.4  # 400ms pause for paragraph breaks
+            
+            # Determine which segments have paragraph breaks
+            paragraph_breaks = set()
+            for i in range(len(valid_segments) - 1):
+                curr_speaker = valid_segments[i].speaker
+                next_speaker = valid_segments[i + 1].speaker
+                # If speaker changes, consider it a paragraph break
+                if curr_speaker != next_speaker:
+                    paragraph_breaks.add(i)
+            
+            # Build scheduled segments with actual positions
+            scheduled_segments = []
+            current_time = 0.0
+            
+            for i, segment in enumerate(valid_segments):
+                # Add natural pause before this segment (except first)
+                if i > 0:
+                    if i - 1 in paragraph_breaks:
+                        current_time += PAUSE_AFTER_PARAGRAPH
+                    else:
+                        current_time += PAUSE_AFTER_SENTENCE
                 
-                processed_segments.append({
+                # Schedule this segment
+                scheduled_segments.append({
                     'path': segment.audio_path,
-                    'start': seg_start,
-                    'end': seg_end,
-                    'duration': seg_end - seg_start
+                    'start': current_time,
+                    'end': current_time + segment.actual_audio_duration,
+                    'duration': segment.actual_audio_duration,
+                    'original_start': segment.start_time,
+                    'original_end': segment.end_time
                 })
-            
-            # Split into batches
-            batch_size = 15
-            batches = [processed_segments[i:i+batch_size] for i in range(0, len(processed_segments), batch_size)]
-            
-            temp_dir = Path(config.temp_dir) / "audio_temp"
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            
-            batch_files = []
-            
-            # Process each batch
-            for batch_idx, batch in enumerate(batches):
-                inputs = []
-                filter_parts = []
                 
-                # Add silent base for this batch
-                inputs.extend(['-f', 'lavfi', '-t', str(total_duration), '-i', 'anullsrc=r=48000:cl=stereo'])
+                # Advance time for next segment
+                current_time += segment.actual_audio_duration
+            
+            logger.info(f"Audio timeline scheduled - total duration: {current_time:.2f}s")
+            
+            # CreateFFmpeg command with all audio inputs
+            inputs = ['-f', 'lavfi', '-t', str(max(total_duration, current_time + 1)), '-i', 'anullsrc=r=48000:cl=stereo']
+            
+            filter_parts = []
+            for i, seg in enumerate(scheduled_segments):
+                inputs.extend(['-i', seg['path']])
+                delay_ms = int(seg['start'] * 1000)
                 
-                # Add all segments in this batch
-                for i, seg in enumerate(batch):
-                    inputs.extend(['-i', str(seg['path'])])
-                    delay_ms = int(seg['start'] * 1000)
-                    
-                    # Just delay the audio to correct position
-                    # Don't trim - let the audio play naturally with its pauses intact
-                    filter_parts.append(
-                        f"[{i+1}]adelay={delay_ms}|{delay_ms}[a{i}]"
-                    )
-                
-                # Mix with higher volume (normalize=0 prevents volume reduction)
-                mix_inputs = '[0]' + ''.join([f"[a{i}]" for i in range(len(batch))])
+                # Use adelay to position audio at correct time
                 filter_parts.append(
-                    f"{mix_inputs}amix=inputs={len(batch)+1}:duration=first:dropout_transition=0:normalize=0[mixed];[mixed]volume=2.0"
+                    f"[{i+1}]adelay={delay_ms}|{delay_ms}[a{i}]"
                 )
-                
-                filter_complex = ';'.join(filter_parts)
-                
-                # Use WAV format for reliability (no compression issues)
-                batch_output = temp_dir / f"b{batch_idx}.wav"
-                
-                cmd = [self.ffmpeg_path]
-                cmd.extend(inputs)
-                cmd.extend([
-                    '-filter_complex', filter_complex,
-                    '-ar', '48000',
-                    '-ac', '2',
-                    '-t', str(total_duration),
-                    '-y',
-                    str(batch_output)
-                ])
-                
-                logger.info(f"Processing batch {batch_idx + 1}/{len(batches)} - this may take a moment...")
-                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
-                batch_files.append(str(batch_output))
             
-            # Mix all batch outputs with volume boost
-            if len(batch_files) == 1:
-                # Only one batch, just convert with volume boost
-                cmd = [
-                    self.ffmpeg_path,
-                    '-i', batch_files[0],
-                    '-filter:a', 'volume=1.5',
-                    '-ar', '48000',
-                    '-ac', '2',
-                    '-y',
-                    output_path
-                ]
-                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=120)
-            else:
-                # Mix batches with volume boost
-                inputs = []
-                for bf in batch_files:
-                    inputs.extend(['-i', bf])
-                
-                filter_str = f'amix=inputs={len(batch_files)}:duration=first:normalize=0,volume=1.5'
-                
-                cmd = [self.ffmpeg_path]
-                cmd.extend(inputs)
-                cmd.extend([
-                    '-filter_complex', filter_str,
-                    '-ar', '48000',
-                    '-ac', '2',
-                    '-y',
-                    output_path
-                ])
-                
-                logger.info(f"Mixing {len(batch_files)} batches - final step...")
-                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
+            # Mix all delayed audio segments together
+            # duration=longest ensures all audio is included
+            # normalize=0 prevents volume reduction from multiple inputs
+            mix_inputs = '[0]' + ''.join([f"[a{i}]" for i in range(len(scheduled_segments))])
+            filter_parts.append(
+                f"{mix_inputs}amix=inputs={len(scheduled_segments)+1}:duration=longest:dropout_transition=0:normalize=0[mixed]"
+            )
+            
+            filter_complex = ';'.join(filter_parts)
+            
+            # Build FFmpeg command
+            cmd = [self.ffmpeg_path]
+            cmd.extend(inputs)
+            cmd.extend([
+                '-filter_complex', filter_complex,
+                '-ar', '48000',
+                '-ac', '2',
+                '-c:a', 'pcm_s16le',
+                '-y',
+                output_path
+            ])
+            
+            logger.info(f"Composing audio timeline with {len(scheduled_segments)} segments...")
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=600)
             
             if not Path(output_path).exists():
                 raise RuntimeError("Audio composition failed: output file not created")
             
-            # Clean up temp files
-            import shutil
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            # Verify output duration
+            output_duration = self._get_audio_duration(output_path)
+            logger.info(f"Audio timeline composed successfully: {output_path} ({output_duration:.2f}s)")
             
-            logger.info(f"Audio timeline composed successfully: {output_path}")
             return output_path
             
         except subprocess.CalledProcessError as e:
