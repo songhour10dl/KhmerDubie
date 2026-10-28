@@ -31,7 +31,13 @@ class ProcessingPipeline:
     def __init__(self, translation_provider: str = "hybrid", manual_dict_path: str = None):
         self.ffmpeg = FFmpegService()
         self.stt = None  # Lazy load
-        self.tts = TTSService()
+        # Use config's TTS provider for consistency
+        self.tts = TTSService(
+            provider=config.tts_provider,
+            api_key=config.tts_api_key,
+            base_url=config.tts_base_url,
+            voice=config.tts_voice
+        )
         self.subtitle = SubtitleService()
         self.project: Optional[Project] = None
         
