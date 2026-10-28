@@ -250,7 +250,9 @@ class HybridTranslationService:
     
     def __init__(self, manual_dict_path: str = None, use_local_nllb: bool = True):
         self.manual = ManualTranslationService()
-        self.fallback = NLLBTranslationService(use_local=use_local_nllb) if use_local_nllb else AltTranslationService()
+        # Use NLLB local mode (no internet needed)
+        from .nllb_translation import NLLBTranslationService
+        self.fallback = NLLBTranslationService(use_local=True)
         
         if manual_dict_path:
             try:

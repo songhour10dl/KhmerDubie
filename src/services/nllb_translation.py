@@ -6,6 +6,7 @@ for low-resource languages like Khmer, providing high-quality translations.
 This can run locally (free, no API) or via Hugging Face API (free tier available).
 """
 import requests
+import torch
 from typing import Optional
 from ..utils.logger import setup_logger
 
