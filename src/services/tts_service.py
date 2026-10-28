@@ -381,9 +381,9 @@ class TTSService:
             output_path = str(Path(output_path).with_suffix('.wav'))
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             
-            # Use eSpeak-ng with Khmer language
+            # Use eSpeak-ng with Khmer language (full path for reliability)
             cmd = [
-                'espeak-ng',
+                r'C:\Program Files\eSpeak NG\espeak-ng.exe',
                 '-v', 'km',  # Khmer language
                 '-w', output_path,
                 text
