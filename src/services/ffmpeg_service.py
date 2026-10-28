@@ -364,11 +364,12 @@ class FFmpegService:
             
             filter_complex = ';'.join(filter_parts)
             
-            # Build FFmpeg command
+            # Build FFmpeg command with proper output mapping
             cmd = [self.ffmpeg_path]
             cmd.extend(inputs)
             cmd.extend([
                 '-filter_complex', filter_complex,
+                '-map', '[mixed]',  # Map the mixed audio output
                 '-ar', '48000',
                 '-ac', '2',
                 '-c:a', 'pcm_s16le',
