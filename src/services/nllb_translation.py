@@ -104,6 +104,10 @@ class NLLBTranslationService:
     def _translate_local(self, text: str, source_lang: str, target_lang: str) -> str:
         """Translate using local NLLB model."""
         try:
+            # Skip empty text
+            if not text or not text.strip():
+                return text
+            
             # Get NLLB language codes
             src_code = self.lang_codes.get(source_lang, 'eng_Latn')
             tgt_code = self.lang_codes.get(target_lang, 'khm_Khmr')
@@ -122,11 +126,14 @@ class NLLBTranslationService:
             # Use convert_tokens_to_ids instead of lang_code_to_id
             forced_bos_token_id = self.tokenizer.convert_tokens_to_ids(tgt_code)
             
+            # Optimize for CPU: use num_beams=1 (greedy search) instead of 5
+            # This is much faster and still produces good quality
             generated_tokens = self.model.generate(
                 **inputs,
                 forced_bos_token_id=forced_bos_token_id,
                 max_length=512,
-                num_beams=5,
+                num_beams=1,  # Changed from 5 to 1 for faster CPU performance
+                do_sample=False,
                 early_stopping=True
             )
             
@@ -136,12 +143,18 @@ class NLLBTranslationService:
                 skip_special_tokens=True
             )[0]
             
-            logger.info(f"NLLB Local: '{text[:50]}...' -> '{translation[:50]}...'")
+            # Verify translation was successful
+            if not translation or translation.strip() == "":
+                logger.warning(f"NLLB returned empty translation for: '{text[:50]}...'")
+                return text  # Return original if translation failed
+            
+            logger.info(f"NLLB Local: '{text[:30]}...' -> '{translation[:30]}...'")
             return translation
             
         except Exception as e:
             logger.error(f"NLLB local translation error: {e}")
-            raise
+            logger.warning(f"Returning original text: '{text[:50]}'")
+            return text  # Return original instead of raising error
     
     def _translate_api(self, text: str, source_lang: str, target_lang: str) -> str:
         """Translate using Hugging Face API."""

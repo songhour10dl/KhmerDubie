@@ -152,9 +152,10 @@ class MainWindow(QMainWindow):
         
         self.single_voice_combo = QComboBox()
         self.single_voice_combo.addItems([
-            "km-KH-SreymomNeural (Female)",
-            "km-KH-PisethNeural (Male)"
+            "km-KH-PisethNeural (Male)",
+            "km-KH-SreymomNeural (Female)"
         ])
+        self.single_voice_combo.setCurrentIndex(0)  # Male is now default
         single_voice_layout.addRow("Voice:", self.single_voice_combo)
         
         mode_layout.addWidget(self.single_voice_group)

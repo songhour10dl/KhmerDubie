@@ -292,66 +292,77 @@ class FFmpegService:
             # Sort segments by start time
             valid_segments.sort(key=lambda s: s.start_time)
             
-            # Measure actual audio durations using FFprobe
+            # Measure actual audio durations and calculate time-stretch ratios
             for segment in valid_segments:
                 actual_duration = self._get_audio_duration(segment.audio_path)
                 if actual_duration > 0:
                     segment.actual_audio_duration = actual_duration
-                    logger.info(f"Audio duration for segment: {actual_duration:.3f}s (original: {segment.duration:.3f}s)")
+                    # Calculate how much we need to stretch/compress the audio
+                    # to fit the original timing
+                    original_duration = segment.end_time - segment.start_time
+                    segment.tempo_ratio = actual_duration / original_duration if original_duration > 0 else 1.0
+                    logger.info(f"Segment: actual={actual_duration:.3f}s, original={original_duration:.3f}s, tempo={segment.tempo_ratio:.3f}")
                 else:
                     segment.actual_audio_duration = segment.duration
+                    segment.tempo_ratio = 1.0
             
-            # Calculate natural pauses between segments
-            PAUSE_AFTER_SENTENCE = 0.15  # 150ms natural pause
-            PAUSE_AFTER_PARAGRAPH = 0.4  # 400ms pause for paragraph breaks
-            
-            # Determine which segments have paragraph breaks
-            paragraph_breaks = set()
-            for i in range(len(valid_segments) - 1):
-                curr_speaker = valid_segments[i].speaker
-                next_speaker = valid_segments[i + 1].speaker
-                # If speaker changes, consider it a paragraph break
-                if curr_speaker != next_speaker:
-                    paragraph_breaks.add(i)
-            
-            # Build scheduled segments with actual positions
+            # Build scheduled segments using ORIGINAL video timing
             scheduled_segments = []
-            current_time = 0.0
             
-            for i, segment in enumerate(valid_segments):
-                # Add natural pause before this segment (except first)
-                if i > 0:
-                    if i - 1 in paragraph_breaks:
-                        current_time += PAUSE_AFTER_PARAGRAPH
-                    else:
-                        current_time += PAUSE_AFTER_SENTENCE
-                
-                # Schedule this segment
+            for segment in valid_segments:
+                # Use the original video timing, not the TTS timing
                 scheduled_segments.append({
                     'path': segment.audio_path,
-                    'start': current_time,
-                    'end': current_time + segment.actual_audio_duration,
-                    'duration': segment.actual_audio_duration,
-                    'original_start': segment.start_time,
-                    'original_end': segment.end_time
+                    'start': segment.start_time,
+                    'end': segment.end_time,
+                    'duration': segment.end_time - segment.start_time,
+                    'tempo_ratio': segment.tempo_ratio,
+                    'actual_duration': segment.actual_audio_duration
                 })
-                
-                # Advance time for next segment
-                current_time += segment.actual_audio_duration
             
-            logger.info(f"Audio timeline scheduled - total duration: {current_time:.2f}s")
+            logger.info(f"Audio timeline scheduled to match original video timing - total duration: {total_duration:.2f}s")
             
-            # CreateFFmpeg command with all audio inputs
-            inputs = ['-f', 'lavfi', '-t', str(max(total_duration, current_time + 1)), '-i', 'anullsrc=r=48000:cl=stereo']
+            # Create FFmpeg command with all audio inputs
+            inputs = ['-f', 'lavfi', '-t', str(total_duration), '-i', 'anullsrc=r=48000:cl=stereo']
             
             filter_parts = []
             for i, seg in enumerate(scheduled_segments):
                 inputs.extend(['-i', seg['path']])
+                
+                # Time-stretch audio to match original timing using atempo
+                # atempo filter only accepts values between 0.5 and 2.0
+                # so we may need to chain multiple atempo filters
+                tempo = seg['tempo_ratio']
+                tempo_filter = ""
+                
+                if 0.5 <= tempo <= 2.0:
+                    # Single atempo filter
+                    tempo_filter = f"atempo={tempo}"
+                elif tempo < 0.5:
+                    # Need multiple atempo filters (e.g., 0.3 = 0.6 * 0.5)
+                    tempo_chain = []
+                    remaining_tempo = tempo
+                    while remaining_tempo < 0.5:
+                        tempo_chain.append("atempo=0.5")
+                        remaining_tempo *= 2
+                    tempo_chain.append(f"atempo={remaining_tempo}")
+                    tempo_filter = ",".join(tempo_chain)
+                else:  # tempo > 2.0
+                    # Need multiple atempo filters (e.g., 3.0 = 2.0 * 1.5)
+                    tempo_chain = []
+                    remaining_tempo = tempo
+                    while remaining_tempo > 2.0:
+                        tempo_chain.append("atempo=2.0")
+                        remaining_tempo /= 2
+                    tempo_chain.append(f"atempo={remaining_tempo}")
+                    tempo_filter = ",".join(tempo_chain)
+                
+                # Add delay to position at correct time
                 delay_ms = int(seg['start'] * 1000)
                 
-                # Use adelay to position audio at correct time
+                # Apply time-stretch and delay
                 filter_parts.append(
-                    f"[{i+1}]adelay={delay_ms}|{delay_ms}[a{i}]"
+                    f"[{i+1}]{tempo_filter},adelay={delay_ms}|{delay_ms}[a{i}]"
                 )
             
             # Mix all delayed audio segments together

@@ -162,7 +162,15 @@ class ProcessingPipeline:
             logger.info(f"Starting parallel translation of {total} segments")
             
             # Use thread pool for parallel translation
-            max_workers = min(config.max_concurrent_requests, total)
+            # For NLLB local (CPU-intensive), limit workers to avoid 100% CPU usage
+            translator_type = type(self.translator).__name__
+            if translator_type == 'NLLBTranslationService' and hasattr(self.translator, 'use_local') and self.translator.use_local:
+                # NLLB local is CPU-intensive, use fewer workers
+                max_workers = min(2, total)  # Only 2 parallel translations for CPU
+                logger.info("Using 2 workers for CPU-intensive NLLB local model")
+            else:
+                # API-based translators can handle more concurrent requests
+                max_workers = min(config.max_concurrent_requests, total)
             completed = 0
             
             def translate_single(segment: DialogueSegment) -> DialogueSegment:

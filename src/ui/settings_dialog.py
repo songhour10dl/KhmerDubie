@@ -28,7 +28,7 @@ class SettingsDialog(QDialog):
         translation_layout = QFormLayout(translation_group)
         
         self.translation_provider = QComboBox()
-        self.translation_provider.addItems(["hybrid", "nllb-hybrid", "alternative", "nllb"])
+        self.translation_provider.addItems(["hybrid", "nllb-local", "nllb-hybrid", "alternative", "nllb"])
         self.translation_provider.currentTextChanged.connect(self.on_translation_provider_changed)
         translation_layout.addRow("Provider:", self.translation_provider)
         
@@ -68,7 +68,7 @@ class SettingsDialog(QDialog):
         tts_layout = QFormLayout(tts_group)
         
         self.tts_provider = QComboBox()
-        self.tts_provider.addItems(["custom", "elevenlabs", "edge", "gtts", "google", "local", "kiri"])
+        self.tts_provider.addItems(["custom", "elevenlabs", "edge", "gtts", "google", "local", "kiri", "speechlab"])
         self.tts_provider.currentTextChanged.connect(self.on_tts_provider_changed)
         tts_layout.addRow("Provider:", self.tts_provider)
         
@@ -182,11 +182,15 @@ class SettingsDialog(QDialog):
                 success, message = service.test_connection()
                 manual_count = service.get_manual_translation_count()
                 message = f"{message}\nManual translations loaded: {manual_count}"
+            elif provider == "nllb-local":
+                from ..services import NLLBTranslationService
+                service = NLLBTranslationService(use_local=True)
+                success, message = service.test_connection()
             elif provider == "nllb-hybrid":
                 from ..services import NLLBHybridService
                 service = NLLBHybridService(
                     manual_dict_path=self.manual_dict_path.text(),
-                    use_local_nllb=False
+                    use_local_nllb=True
                 )
                 success, message = service.test_connection()
                 manual_count = service.get_manual_translation_count()
@@ -221,8 +225,8 @@ class SettingsDialog(QDialog):
     def on_tts_provider_changed(self, provider: str):
         """Update UI when TTS provider changes."""
         # Providers that need API key
-        needs_api_key = provider in ["elevenlabs", "kiri", "google"]
-        needs_base_url = provider in ["kiri", "elevenlabs"]
+        needs_api_key = provider in ["elevenlabs", "kiri", "google", "speechlab"]
+        needs_base_url = provider in ["kiri", "elevenlabs", "speechlab", "custom"]
         
         self.tts_key.setEnabled(needs_api_key)
         self.tts_key_label.setEnabled(needs_api_key)
@@ -245,6 +249,9 @@ class SettingsDialog(QDialog):
         elif provider == "local":
             self.tts_voice.setPlaceholderText("km (eSpeak-ng)")
             self.tts_voice.setEnabled(False)
+        elif provider == "speechlab":
+            self.tts_voice.setPlaceholderText("khmer-male or khmer-female")
+            self.tts_voice.setEnabled(True)
         else:
             self.tts_voice.setEnabled(True)
     
@@ -262,6 +269,8 @@ class SettingsDialog(QDialog):
                 hint = "\nNote: If test fails, install with: pip install gtts"
             elif provider == "local":
                 hint = "\nNote: Requires eSpeak-ng: https://github.com/espeak-ng/espeak-ng/releases"
+            elif provider == "speechlab":
+                hint = "\nNote: Configure TTS_BASE_URL in .env file\nExample: TTS_BASE_URL=https://api.speechlab.sg/v1"
             else:
                 hint = ""
             
