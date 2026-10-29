@@ -24,7 +24,7 @@ Wait until you see the UI at http://localhost:8880
 ### 2. Start the Adapter (Terminal 2)
 
 ```powershell
-cd C:\Users\songh\OneDrive\Desktop\KhmerDubStudio\speechlab_adapter
+cd D:\KhmerDubStudio\speechlab_adapter
 
 # Create .env file
 Copy-Item .env.example .env
@@ -41,7 +41,7 @@ The adapter will start at http://localhost:8881
 ### 3. Start KhmerDubStudio (Terminal 3)
 
 ```powershell
-cd C:\Users\songh\OneDrive\Desktop\KhmerDubStudio
+cd D:\KhmerDubStudio
 python main.py
 ```
 

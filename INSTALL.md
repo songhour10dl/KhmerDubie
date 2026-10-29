@@ -15,7 +15,7 @@ HINT: This error might have occurred since this system does not have Windows Lon
    - Select "Run as Administrator"
    - Navigate to the project directory:
      ```powershell
-     cd C:\Users\songh\OneDrive\Desktop\KhmerDubStudio
+     cd D:\KhmerDubStudio
      ```
    - Run the script:
      ```powershell
@@ -58,11 +58,11 @@ If you cannot enable Long Path support:
    pip install -r requirements.txt
    ```
 
-4. Run the application from the project directory:
-   ```powershell
-   cd C:\Users\songh\OneDrive\Desktop\KhmerDubStudio
-   python run.py
-   ```
+ 4. Run the application from the project directory:
+    ```powershell
+    cd D:\KhmerDubStudio
+    python run.py
+    ```
 
 ## Normal Installation (After Long Path is Enabled)
 

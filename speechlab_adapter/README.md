@@ -40,7 +40,7 @@ VoxCPM2 Model (Khmer TTS)
 The adapter is located in your KhmerDubStudio project:
 
 ```powershell
-cd C:\Users\songh\OneDrive\Desktop\KhmerDubStudio\speechlab_adapter
+cd D:\KhmerDubStudio\speechlab_adapter
 ```
 
 ### Step 2: Create and activate virtual environment
@@ -87,7 +87,7 @@ Wait for SpeechLab to fully load (check http://localhost:8880/api/health shows `
 In your adapter terminal:
 
 ```powershell
-cd C:\Users\songh\OneDrive\Desktop\KhmerDubStudio\speechlab_adapter
+cd D:\KhmerDubStudio\speechlab_adapter
 .\venv\Scripts\Activate.ps1
 python adapter.py
 ```
@@ -99,7 +99,7 @@ The adapter will start on http://localhost:8881
 In a **third terminal**:
 
 ```powershell
-cd C:\Users\songh\OneDrive\Desktop\KhmerDubStudio
+cd D:\KhmerDubStudio
 python main.py
 ```
 
