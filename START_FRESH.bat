@@ -24,6 +24,6 @@ echo.
 REM Start the app
 echo Starting KhmerDub Studio...
 echo.
-python main.py
+venv\Scripts\python.exe main.py
 
 pause
