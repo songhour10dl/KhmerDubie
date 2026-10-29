@@ -66,7 +66,9 @@ If you cannot enable Long Path support:
 
 ## Normal Installation (After Long Path is Enabled)
 
-1. **Install Python 3.10 or higher**
+1. **Install Python 3.10 or 3.11** (NOT 3.13 - it has compatibility issues)
+   - Recommended: Python 3.11.9 (https://www.python.org/downloads/)
+   - Python 3.13 causes NumPy crashes - use 3.10 or 3.11 instead
 
 2. **Install FFmpeg**
    - Download from: https://ffmpeg.org/download.html
